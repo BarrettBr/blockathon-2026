@@ -1,0 +1,30 @@
+// Name: main.scss
+//Description: Holds most of the styling for the web app, especially the most "important" sections that are far reaching
+//Programmers: Adam Berry
+//Creation Date: 2/25
+//Revision Dates:
+//Preconditions: Not Relevant
+//Postconditions: Not Relevant
+//Error Types: Not Relevant
+//Invariants: Dependencies described in /Docs/web.md
+//Known Faults: None
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+	min-height: 100vh;
+	font-family: var(--p-font-family, system-ui, -apple-system, sans-serif);
+	background-color: var(--p-surface-50);
+	color: var(--p-surface-900);
+	-webkit-font-smoothing: antialiased;
+}
+
+#app {
+	min-height: 100vh;
+}
