@@ -1,170 +1,48 @@
-# Frontend Use Case Flow (Call Order)
+# Frontend Use Case Flow (Current API Order)
 
 Base URL: `http://127.0.0.1:8000/api/v1`
 
-This is the exact API order for a typical user journey:
-
-1. Connect existing wallet
-2. Send money
-3. Create + activate subscription
-4. Process subscription payment
-5. Cancel subscription
-
 ## 1) Connect Existing Wallet
-User already has a wallet created elsewhere and wants to connect it.
-
-### Call
-`POST /wallets/import`
-
-### Body
-```json
-{
-  "seed": "sEdExampleUserSecretValue"
-}
-```
-
-### Returns
-- User wallet record (`address`, `seed`, `network`)
-
-### Optional follow-up checks
-1. `GET /wallets`
+1. `POST /wallets/import`
 2. `GET /wallets/{address}/balance`
 
-Use this balance response in dashboard cards:
-- `balance_xrp`
-- `rlusd_balance`
+## 2) Send One-Time Money
+- XRP: `POST /payments/send`
+- RLUSD: `POST /payments/send-rlusd`
 
-## 2) Send Money (One-Time)
+## 3) Subscription (Vendor Request Model)
 
-### XRP transfer
-`POST /payments/send`
+### Vendor side
+1. Ensure user exists in backend lookup:
+   - `POST /users/register`
+2. Ensure vendor exists:
+   - `POST /vendors/upsert`
+3. Create request (with shared-secret vendor auth header, default `X-Vendor-Secret`):
+   - `POST /subscriptions/requests`
 
-Body:
-```json
-{
-  "sender_seed": "sEdExampleUserSecretValue",
-  "destination_address": "r...",
-  "amount_xrp": 0.5
-}
-```
+### User side
+4. Fetch pending requests:
+   - `GET /subscriptions/pending/{username}`
+5. Approve selected request:
+   - `POST /subscriptions/{id}/approve`
 
-### RLUSD transfer
-`POST /payments/send-rlusd`
+### Optional lookup / management
+6. Contract lookup by hash:
+   - `GET /subscriptions/contract/{contract_hash}`
+7. Cancel subscription:
+   - `POST /subscriptions/{id}/cancel`
+8. List subscriptions:
+   - `GET /subscriptions`
+   - `GET /subscriptions/{id}`
 
-Body:
-```json
-{
-  "sender_seed": "sEdExampleUserSecretValue",
-  "destination_address": "r...",
-  "amount": 9.99
-}
-```
+## 4) Dashboard Data
+- `GET /dashboard/{user_wallet_address}`
+- `GET /spending-guard/{user_wallet_address}`
+- `GET /history/{user_wallet_address}?limit=50`
 
-### Optional transaction/history checks
-1. `GET /payments`
-2. `GET /history/{user_wallet_address}`
-
-## 3) Create and Activate Subscription
-
-## 3A) Create subscription
-`POST /subscriptions/create`
-
-Body (escrow mode enabled):
-```json
-{
-  "user_wallet_address": "rUSER...",
-  "merchant_wallet_address": "rMERCHANT...",
-  "user_seed": "sEdExampleUserSecretValue",
-  "amount_xrp": 1.25,
-  "interval_days": 30,
-  "use_escrow": true
-}
-```
-
-Save returned `id` as `subscription_id`.
-
-## 3B) User handshake approval
-`POST /subscriptions/{subscription_id}/handshake/user-approve`
-
-Body:
-```json
-{
-  "user_seed": "sEdExampleUserSecretValue"
-}
-```
-
-## 3C) Service handshake approval
-`POST /subscriptions/{subscription_id}/handshake/service-approve`
-
-Body:
-```json
-{
-  "merchant_seed": "sEdExampleMerchantSecretValue"
-}
-```
-(If backend has `OPERATOR_WALLET_SEED`, frontend may omit merchant seed.)
-
-After both approvals:
-- `status` becomes `active`
-- if `use_escrow=true`, backend creates escrow lock for current cycle
-
-## 3D) Process cycle payment
-`POST /subscriptions/{subscription_id}/process`
-
-For escrow subscriptions, merchant seed is used:
-```json
-{
-  "merchant_seed": "sEdExampleMerchantSecretValue"
-}
-```
-If backend has `OPERATOR_WALLET_SEED`, body can be empty.
-
-For non-escrow subscriptions (`use_escrow=false`), body can be empty.
-
-### Optional subscription checks
-1. `GET /subscriptions/{subscription_id}`
-2. `GET /subscriptions/user/{user_wallet_address}`
-
-## 4) Cancel Subscription
-
-### Call
-`POST /subscriptions/{subscription_id}/cancel`
-
-### Body
-None
-
-### Result
-- `status` becomes `cancelled`
-- if escrow is currently locked, backend attempts escrow cancel
-
-## Dashboard/Sidebar Calls for UI
-Use these to populate dashboard widgets and history screens.
-
-1. `GET /dashboard/{user_wallet_address}`
-- Aggregated cards/charts:
-  - balances (XRP + RLUSD)
-  - locked in escrow
-  - monthly guard stats
-  - upcoming release
-  - recent activity
-
-2. `GET /spending-guard/{user_wallet_address}`
-- Current monthly guard values
-
-3. `POST /spending-guard/set`
-- Set/update monthly limit
-
-4. `GET /history/{user_wallet_address}?limit=50`
-- Table feed sorted newest first
-
-## Minimal Frontend State You Should Store
-- `user_wallet_address`
-- `user_seed` (if your flow allows client-side handling; otherwise use secure session/server strategy)
-- `subscription_id` per created subscription
-- `merchant_seed` only for merchant-side process actions
-
-## Common Failure Cases to Handle
-- `400`: bad seed, bad address, invalid payload
-- `404`: subscription/tx not found
-- `409`: subscription not active, cancelled, or handshake incomplete
-- `500`: server/XRPL failure
+## Typical Failure Handling
+- `400`: invalid seed/address/payload/contract mismatch
+- `401`: vendor shared-secret header invalid or missing
+- `404`: username/subscription/contract not found
+- `409`: duplicate vendor transaction id or invalid state
+- `500`: backend/XRPL unexpected failure

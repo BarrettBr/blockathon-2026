@@ -46,6 +46,9 @@ class Settings:
         "yes",
     }
     HANDSHAKE_APPROVAL_DROPS: str = os.getenv("HANDSHAKE_APPROVAL_DROPS", "1")
+    VENDOR_SHARED_SECRET_HEADER: str = os.getenv("VENDOR_SHARED_SECRET_HEADER", "X-Vendor-Secret")
+    WEBHOOK_SIGNATURE_HEADER: str = os.getenv("WEBHOOK_SIGNATURE_HEADER", "X-Equipay-Signature")
+    WEBHOOK_TIMEOUT_SECONDS: int = int(os.getenv("WEBHOOK_TIMEOUT_SECONDS", "10"))
     DASHBOARD_RECENT_LIMIT: int = int(os.getenv("DASHBOARD_RECENT_LIMIT", "10"))
     FAUCET_RETRIES: int = int(os.getenv("FAUCET_RETRIES", "2"))
     XRPL_REQUEST_TIMEOUT_SECONDS: int = int(os.getenv("XRPL_REQUEST_TIMEOUT_SECONDS", "20"))

@@ -3,11 +3,15 @@
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
+import json as _json
 import json
+import hmac
+import secrets
 from typing import Any, Optional
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from xrpl.clients import JsonRpcClient
@@ -28,63 +32,34 @@ from xrpl.wallet import Wallet as XRPLWallet
 from xrpl.wallet import generate_faucet_wallet
 
 from config import settings
-from db import HistoryEvent, SpendingGuard, Subscription, Transaction, Wallet, get_db
+from db import (
+    HistoryEvent,
+    SpendingGuard,
+    Subscription,
+    Transaction,
+    UserProfile,
+    Vendor,
+    Wallet,
+    WebhookDelivery,
+    get_db,
+)
+from schemas import (
+    ApiResponse,
+    BootstrapRlusdRequest,
+    PaymentSendRequest,
+    RlusdPaymentSendRequest,
+    SpendingGuardSetRequest,
+    SubscriptionApproveRequest,
+    SubscriptionCancelRequest,
+    SubscriptionRequestCreateRequest,
+    UserProfileRegisterRequest,
+    VendorCreateRequest,
+    VendorUpdateRequest,
+    WalletImportRequest,
+)
 
 
 router = APIRouter()
-
-
-class WalletImportRequest(BaseModel):
-    seed: str = Field(..., min_length=8)
-
-
-class PaymentSendRequest(BaseModel):
-    sender_seed: str = Field(..., min_length=8)
-    destination_address: str = Field(..., min_length=25)
-    amount_xrp: float = Field(..., gt=0)
-
-
-class RlusdPaymentSendRequest(BaseModel):
-    sender_seed: str = Field(..., min_length=8)
-    destination_address: str = Field(..., min_length=25)
-    amount: float = Field(..., gt=0)
-
-
-class BootstrapRlusdRequest(BaseModel):
-    user_seed: str = Field(..., min_length=8)
-    mint_amount: float = Field(default=100.0, gt=0)
-
-
-class SubscriptionCreateRequest(BaseModel):
-    user_wallet_address: str = Field(..., min_length=25)
-    merchant_wallet_address: str = Field(..., min_length=25)
-    user_seed: str = Field(..., min_length=8)
-    amount_xrp: float = Field(..., gt=0)
-    interval_days: int = Field(30, ge=1)
-    use_escrow: bool = True
-
-
-class UserHandshakeApproveRequest(BaseModel):
-    user_seed: str = Field(..., min_length=8)
-
-
-class ServiceHandshakeApproveRequest(BaseModel):
-    merchant_seed: Optional[str] = None
-
-
-class SubscriptionProcessRequest(BaseModel):
-    merchant_seed: Optional[str] = None
-
-
-class SpendingGuardSetRequest(BaseModel):
-    user_wallet_address: str = Field(..., min_length=25)
-    monthly_limit: float = Field(..., ge=0)
-    currency: str = Field(default="RLUSD", min_length=3, max_length=16)
-
-
-class ApiResponse(BaseModel):
-    message: str
-    data: Any
 
 
 # Standard API success shape.
@@ -123,6 +98,124 @@ def _amount_to_string(amount: float) -> str:
 # Encode memo text as hex for XRPL MemoData.
 def _hex_text(value: str) -> str:
     return value.encode("utf-8").hex()
+
+
+# SHA256 helper used for contract hashes.
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+# Resolve vendor from shared-secret header.
+def _get_vendor_from_request(request: Request, db: Session) -> Vendor:
+    header_name = settings.VENDOR_SHARED_SECRET_HEADER
+    shared_secret = request.headers.get(header_name, "").strip()
+    if not shared_secret:
+        raise HTTPException(status_code=401, detail=f"Missing vendor shared secret header: {header_name}")
+    vendor = db.query(Vendor).filter(Vendor.shared_secret == shared_secret).first()
+    if not vendor or not vendor.is_active:
+        raise HTTPException(status_code=401, detail="Invalid vendor shared secret")
+    return vendor
+
+
+# Build canonical contract payload for signature/hash.
+def _build_subscription_contract_payload(
+    vendor: Vendor,
+    user_profile: UserProfile,
+    vendor_tx_id: str,
+    amount_xrp: float,
+    interval_days: int,
+    version: str = "v1",
+) -> dict[str, Any]:
+    return {
+        "version": version,
+        "vendor_id": vendor.id,
+        "vendor_code": vendor.vendor_code,
+        "vendor_tx_id": vendor_tx_id,
+        "username": user_profile.username,
+        "user_wallet": user_profile.wallet_address,
+        "vendor_wallet": vendor.wallet_address,
+        "amount_xrp": _amount_to_string(amount_xrp),
+        "interval_days": interval_days,
+        "network": settings.XRPL_NETWORK,
+    }
+
+
+# Compute stable hash for contract lookup/audits.
+def _contract_hash(payload: dict[str, Any]) -> str:
+    canonical = _json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return _sha256_text(canonical)
+
+
+# Sign contract payload with vendor shared secret.
+def _sign_subscription_contract(payload: dict[str, Any], shared_secret: str) -> str:
+    canonical = _json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hmac.new(shared_secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+# Verify contract payload and signature using vendor shared secret.
+def _verify_subscription_contract(payload: dict[str, Any], signature: str, shared_secret: str) -> None:
+    expected = _sign_subscription_contract(payload, shared_secret)
+    if not hmac.compare_digest(expected, signature):
+        raise HTTPException(status_code=400, detail="Invalid subscription contract signature")
+
+
+# Generate a vendor shared secret.
+def _generate_shared_secret() -> str:
+    return secrets.token_urlsafe(32)
+
+
+# Build and sign a webhook event payload.
+def _sign_webhook_event(shared_secret: str, payload_json: str, timestamp: int) -> str:
+    signed_payload = f"{timestamp}.{payload_json}".encode("utf-8")
+    digest = hmac.new(shared_secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
+    return f"t={timestamp},v1={digest}"
+
+
+# Send webhook callback and persist delivery details.
+def _send_vendor_webhook(db: Session, vendor: Vendor, event_type: str, payload: dict[str, Any]) -> None:
+    payload_json = _json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    timestamp = int(datetime.now(timezone.utc).timestamp())
+    signature = _sign_webhook_event(vendor.shared_secret, payload_json, timestamp)
+    row = WebhookDelivery(
+        vendor_id=vendor.id,
+        event_type=event_type,
+        payload=payload_json,
+        signature=signature,
+        status="queued",
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    if not vendor.webhook_url:
+        row.status = "skipped"
+        row.error = "No webhook URL configured"
+        db.commit()
+        return
+
+    request_obj = urllib_request.Request(
+        vendor.webhook_url,
+        data=payload_json.encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            settings.WEBHOOK_SIGNATURE_HEADER: signature,
+            "User-Agent": "EquiPay-Webhook/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(request_obj, timeout=settings.WEBHOOK_TIMEOUT_SECONDS) as response:
+            row.status = "delivered"
+            row.http_status = int(response.getcode())
+            row.error = None
+    except urllib_error.HTTPError as exc:
+        row.status = "failed"
+        row.http_status = int(exc.code)
+        row.error = str(exc.reason)
+    except Exception as exc:
+        row.status = "failed"
+        row.error = str(exc)
+    db.commit()
 
 
 # Build wallet object from seed with user-friendly errors.
@@ -547,9 +640,9 @@ def _send_issued_payment(
 
 
 # Create an on-chain escrow lock for the next subscription cycle.
-def _lock_subscription_escrow(db: Session, row: Subscription) -> dict[str, Any]:
+def _lock_subscription_escrow(db: Session, row: Subscription, user_seed: str) -> dict[str, Any]:
     client = _get_xrpl_client()
-    user_wallet = _wallet_from_seed(row.user_seed)
+    user_wallet = _wallet_from_seed(user_seed)
     if user_wallet.classic_address != row.user_wallet_address:
         raise HTTPException(status_code=400, detail="Stored user seed does not match subscription user wallet")
 
@@ -672,11 +765,11 @@ def _finish_subscription_escrow(db: Session, row: Subscription, merchant_seed: s
 
 
 # Cancel currently locked escrow for a subscription.
-def _cancel_subscription_escrow(db: Session, row: Subscription) -> dict[str, Any]:
+def _cancel_subscription_escrow(db: Session, row: Subscription, user_seed: str) -> dict[str, Any]:
     if row.escrow_status != "locked" or not row.escrow_offer_sequence:
         return {"status": "no_locked_escrow"}
 
-    user_wallet = _wallet_from_seed(row.user_seed)
+    user_wallet = _wallet_from_seed(user_seed)
     client = _get_xrpl_client()
     tx = EscrowCancel(
         account=row.user_wallet_address,
@@ -727,15 +820,20 @@ def _cancel_subscription_escrow(db: Session, row: Subscription) -> dict[str, Any
 def _subscription_to_dict(row: Subscription) -> dict[str, Any]:
     return {
         "id": row.id,
+        "vendor_id": row.vendor_id,
+        "user_profile_id": row.user_profile_id,
+        "vendor_tx_id": row.vendor_tx_id,
         "user_wallet_address": row.user_wallet_address,
         "merchant_wallet_address": row.merchant_wallet_address,
         "amount_xrp": row.amount_xrp,
         "interval_days": row.interval_days,
         "status": row.status,
-        "handshake_status": row.handshake_status,
-        "terms_hash": row.terms_hash,
-        "user_approval_tx_hash": row.user_approval_tx_hash,
-        "service_approval_tx_hash": row.service_approval_tx_hash,
+        "request_status": row.request_status,
+        "contract_hash": row.contract_hash,
+        "contract_alg": row.contract_alg,
+        "contract_version": row.contract_version,
+        "approved_at": row.approved_at.isoformat() if row.approved_at else None,
+        "approved_by_username": row.approved_by_username,
         "start_date": row.start_date.isoformat(),
         "next_payment_date": row.next_payment_date.isoformat(),
         "last_tx_hash": row.last_tx_hash,
@@ -938,7 +1036,11 @@ def get_wallet_balance(address: str) -> dict[str, Any]:
 
 # Submit one XRP payment and store transaction summary.
 @router.post("/payments/send", response_model=ApiResponse)
-def send_payment(payload: PaymentSendRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+def send_payment(
+    payload: PaymentSendRequest,
+    db: Session = Depends(get_db),
+    request: Request = None,
+) -> dict[str, Any]:
     payment_result = _send_xrp_payment(
         sender_seed=payload.sender_seed,
         destination_address=payload.destination_address,
@@ -968,6 +1070,24 @@ def send_payment(payload: PaymentSendRequest, db: Session = Depends(get_db)) -> 
     _apply_spending(db, payment_result["from_address"], payload.amount_xrp, "XRP")
     db.commit()
     db.refresh(tx_row)
+    if request:
+        try:
+            vendor = _get_vendor_from_request(request, db)
+            _send_vendor_webhook(
+                db,
+                vendor,
+                "payment.sent",
+                {
+                    "event": "payment.sent",
+                    "tx_hash": tx_row.tx_hash,
+                    "from_address": tx_row.from_address,
+                    "to_address": tx_row.to_address,
+                    "amount_xrp": tx_row.amount_xrp,
+                    "status": tx_row.status,
+                },
+            )
+        except HTTPException:
+            pass
 
     return _success(
         "Payment sent",
@@ -986,7 +1106,11 @@ def send_payment(payload: PaymentSendRequest, db: Session = Depends(get_db)) -> 
 
 # Send RLUSD/issued-currency payment and persist to history.
 @router.post("/payments/send-rlusd", response_model=ApiResponse)
-def send_rlusd_payment(payload: RlusdPaymentSendRequest, db: Session = Depends(get_db)):
+def send_rlusd_payment(
+    payload: RlusdPaymentSendRequest,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
     payment_result = _send_issued_payment(
         sender_seed=payload.sender_seed,
         destination_address=payload.destination_address,
@@ -1018,6 +1142,26 @@ def send_rlusd_payment(payload: RlusdPaymentSendRequest, db: Session = Depends(g
     _apply_spending(db, payment_result["from_address"], payload.amount, settings.RLUSD_CURRENCY)
     db.commit()
     db.refresh(tx_row)
+    if request:
+        try:
+            vendor = _get_vendor_from_request(request, db)
+            _send_vendor_webhook(
+                db,
+                vendor,
+                "payment.sent",
+                {
+                    "event": "payment.sent",
+                    "tx_hash": tx_row.tx_hash,
+                    "from_address": tx_row.from_address,
+                    "to_address": tx_row.to_address,
+                    "amount": payload.amount,
+                    "currency": settings.RLUSD_CURRENCY,
+                    "issuer": settings.RLUSD_ISSUER,
+                    "status": tx_row.status,
+                },
+            )
+        except HTTPException:
+            pass
 
     return _success(
         "RLUSD payment sent",
@@ -1087,311 +1231,430 @@ def get_payment(tx_hash: str) -> dict[str, Any]:
     )
 
 
-# Create subscription terms and wait for both handshake approvals.
-@router.post("/subscriptions/create", response_model=ApiResponse)
-def create_subscription(payload: SubscriptionCreateRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
-    if not _is_valid_classic_address(payload.user_wallet_address):
-        raise HTTPException(status_code=400, detail="Invalid user_wallet_address")
-    if not _is_valid_classic_address(payload.merchant_wallet_address):
-        raise HTTPException(status_code=400, detail="Invalid merchant_wallet_address")
+# Register or update a user profile for username-based subscription lookup.
+def register_user_profile(payload: UserProfileRegisterRequest, db: Session) -> dict[str, Any]:
+    if not _is_valid_classic_address(payload.wallet_address):
+        raise HTTPException(status_code=400, detail="Invalid wallet_address")
 
-    user_wallet = _wallet_from_seed(payload.user_seed)
-    if user_wallet.classic_address != payload.user_wallet_address:
-        raise HTTPException(status_code=400, detail="user_seed does not match user_wallet_address")
-
-    today = date.today()
-    row = Subscription(
-        user_wallet_address=payload.user_wallet_address,
-        merchant_wallet_address=payload.merchant_wallet_address,
-        user_seed=payload.user_seed,
-        amount_xrp=payload.amount_xrp,
-        interval_days=payload.interval_days,
-        status="pending_handshake",
-        terms_hash=_subscription_terms_hash(
-            payload.user_wallet_address,
-            payload.merchant_wallet_address,
-            payload.amount_xrp,
-            payload.interval_days,
-        ),
-        handshake_status="pending",
-        user_approval_tx_hash=None,
-        service_approval_tx_hash=None,
-        start_date=today,
-        next_payment_date=today,
-        last_tx_hash=None,
-        use_escrow=1 if payload.use_escrow else 0,
-        escrow_amount_xrp=payload.amount_xrp if payload.use_escrow else None,
-        escrow_status="not_started" if payload.use_escrow else "disabled",
-    )
-    db.add(row)
-    db.commit()
-    db.refresh(row)
-
-    return _success(
-        "Subscription created. Handshake approvals required before recurring payments.",
-        _subscription_to_dict(row),
-    )
-
-
-# Record user's on-chain approval of subscription terms.
-@router.post("/subscriptions/{subscription_id}/handshake/user-approve", response_model=ApiResponse)
-def user_approve_subscription_handshake(
-    subscription_id: int,
-    payload: UserHandshakeApproveRequest,
-    db: Session = Depends(get_db),
-) -> dict[str, Any]:
-    row = db.query(Subscription).filter(Subscription.id == subscription_id).first()
-    if not row:
-        raise HTTPException(status_code=404, detail="Subscription not found")
-    if row.status == "cancelled":
-        raise HTTPException(status_code=409, detail="Subscription is cancelled")
-    if row.user_approval_tx_hash:
-        return _success("User already approved handshake", _subscription_to_dict(row))
-
-    user_wallet = _wallet_from_seed(payload.user_seed)
-    if user_wallet.classic_address != row.user_wallet_address:
-        raise HTTPException(status_code=400, detail="Provided seed does not match user wallet")
-
-    approval_result = _send_xrp_payment(
-        sender_seed=payload.user_seed,
-        destination_address=row.merchant_wallet_address,
-        amount_xrp=_handshake_amount_xrp(),
-        tx_type="subscription_handshake_user",
-        memo_text=f"SUBSCRIPTION_HANDSHAKE_USER:{row.terms_hash}",
-    )
-
-    db.add(
-        Transaction(
-            tx_hash=approval_result["tx_hash"],
-            tx_type="subscription_handshake_user",
-            from_address=approval_result["from_address"],
-            to_address=approval_result["to_address"],
-            amount_xrp=_handshake_amount_xrp(),
-            status=approval_result["status"],
-        )
-    )
-    _record_history(
-        db,
-        user_wallet_address=row.user_wallet_address,
-        event_type="subscription_handshake_user",
-        tx_hash=approval_result["tx_hash"],
-        counterparty_address=row.merchant_wallet_address,
-        amount=_handshake_amount_xrp(),
-        currency="XRP",
-        status=approval_result["status"],
-    )
-
-    row.user_approval_tx_hash = approval_result["tx_hash"]
-    row.handshake_status = "user_approved"
-    if row.service_approval_tx_hash:
-        row.handshake_status = "completed"
-        row.status = "active"
-    row.updated_at = datetime.now(timezone.utc)
-
-    db.commit()
-    db.refresh(row)
-
-    if row.status == "active" and bool(row.use_escrow) and row.escrow_status != "locked":
-        _lock_subscription_escrow(db, row)
-
-    return _success("User handshake approval recorded on-chain", _subscription_to_dict(row))
-
-
-# Record service's on-chain approval of the same subscription terms.
-@router.post("/subscriptions/{subscription_id}/handshake/service-approve", response_model=ApiResponse)
-def service_approve_subscription_handshake(
-    subscription_id: int,
-    payload: ServiceHandshakeApproveRequest,
-    db: Session = Depends(get_db),
-) -> dict[str, Any]:
-    row = db.query(Subscription).filter(Subscription.id == subscription_id).first()
-    if not row:
-        raise HTTPException(status_code=404, detail="Subscription not found")
-    if row.status == "cancelled":
-        raise HTTPException(status_code=409, detail="Subscription is cancelled")
-    if row.service_approval_tx_hash:
-        return _success("Service already approved handshake", _subscription_to_dict(row))
-
-    service_seed = _resolve_service_seed(payload.merchant_seed)
-    merchant_wallet = _wallet_from_seed(service_seed)
-    if merchant_wallet.classic_address != row.merchant_wallet_address:
-        raise HTTPException(status_code=400, detail="Provided seed does not match merchant wallet")
-
-    approval_result = _send_xrp_payment(
-        sender_seed=service_seed,
-        destination_address=row.user_wallet_address,
-        amount_xrp=_handshake_amount_xrp(),
-        tx_type="subscription_handshake_service",
-        memo_text=f"SUBSCRIPTION_HANDSHAKE_SERVICE:{row.terms_hash}",
-    )
-
-    db.add(
-        Transaction(
-            tx_hash=approval_result["tx_hash"],
-            tx_type="subscription_handshake_service",
-            from_address=approval_result["from_address"],
-            to_address=approval_result["to_address"],
-            amount_xrp=_handshake_amount_xrp(),
-            status=approval_result["status"],
-        )
-    )
-    _record_history(
-        db,
-        user_wallet_address=row.user_wallet_address,
-        event_type="subscription_handshake_service",
-        tx_hash=approval_result["tx_hash"],
-        counterparty_address=row.merchant_wallet_address,
-        amount=_handshake_amount_xrp(),
-        currency="XRP",
-        status=approval_result["status"],
-    )
-
-    row.service_approval_tx_hash = approval_result["tx_hash"]
-    row.handshake_status = "service_approved"
-    if row.user_approval_tx_hash:
-        row.handshake_status = "completed"
-        row.status = "active"
-    row.updated_at = datetime.now(timezone.utc)
-
-    db.commit()
-    db.refresh(row)
-
-    if row.status == "active" and bool(row.use_escrow) and row.escrow_status != "locked":
-        _lock_subscription_escrow(db, row)
-
-    return _success("Service handshake approval recorded on-chain", _subscription_to_dict(row))
-
-
-# List all subscriptions and current handshake/payment state.
-@router.get("/subscriptions", response_model=ApiResponse)
-def list_subscriptions(db: Session = Depends(get_db)) -> dict[str, Any]:
-    rows = db.query(Subscription).order_by(Subscription.created_at.desc()).all()
-    return _success("Subscription list", [_subscription_to_dict(row) for row in rows])
-
-
-# Fetch subscriptions by user sorted by newest first.
-@router.get("/subscriptions/user/{user_wallet_address}", response_model=ApiResponse)
-def list_subscriptions_for_user(user_wallet_address: str, db: Session = Depends(get_db)) -> dict[str, Any]:
-    rows = (
-        db.query(Subscription)
-        .filter(Subscription.user_wallet_address == user_wallet_address)
-        .order_by(Subscription.created_at.desc())
-        .all()
-    )
-    return _success("User subscriptions", [_subscription_to_dict(row) for row in rows])
-
-
-# Fetch one subscription by ID.
-@router.get("/subscriptions/{subscription_id}", response_model=ApiResponse)
-def get_subscription(subscription_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
-    row = db.query(Subscription).filter(Subscription.id == subscription_id).first()
-    if not row:
-        raise HTTPException(status_code=404, detail="Subscription not found")
-
-    return _success("Subscription details", _subscription_to_dict(row))
-
-
-# Process next recurring payment (escrow release preferred when enabled).
-@router.post("/subscriptions/{subscription_id}/process", response_model=ApiResponse)
-def process_subscription(
-    subscription_id: int,
-    payload: SubscriptionProcessRequest | None = None,
-    db: Session = Depends(get_db),
-) -> dict[str, Any]:
-    row = db.query(Subscription).filter(Subscription.id == subscription_id).first()
-    if not row:
-        raise HTTPException(status_code=404, detail="Subscription not found")
-    if row.status == "cancelled":
-        raise HTTPException(status_code=409, detail="Subscription is cancelled")
-    if row.status != "active" or row.handshake_status != "completed":
-        raise HTTPException(status_code=409, detail="Subscription handshake is not fully approved")
-
-    if bool(row.use_escrow):
-        merchant_seed = _resolve_service_seed(payload.merchant_seed if payload else None)
-
-        release_result = _finish_subscription_escrow(db, row, merchant_seed)
-        _lock_subscription_escrow(db, row)
+    row = db.query(UserProfile).filter(UserProfile.username == payload.username).first()
+    if row:
+        row.wallet_address = payload.wallet_address
+        row.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(row)
         return _success(
-            "Subscription escrow released and next escrow lock created",
+            "User profile updated",
             {
-                "subscription_id": row.id,
-                "last_tx_hash": release_result["tx_hash"],
-                "status": row.status,
-                "next_payment_date": row.next_payment_date.isoformat(),
-                "escrow_status": row.escrow_status,
-                "escrow_offer_sequence": row.escrow_offer_sequence,
-                "escrow_create_tx_hash": row.escrow_create_tx_hash,
+                "id": row.id,
+                "username": row.username,
+                "wallet_address": row.wallet_address,
             },
         )
 
-    payment_result = _send_xrp_payment(
-        sender_seed=row.user_seed,
-        destination_address=row.merchant_wallet_address,
-        amount_xrp=row.amount_xrp,
-        tx_type="subscription_payment",
-        memo_text=f"SUBSCRIPTION_PAYMENT:{row.id}:{row.terms_hash}",
-    )
-
-    db.add(
-        Transaction(
-            tx_hash=payment_result["tx_hash"],
-            tx_type="subscription_payment",
-            from_address=payment_result["from_address"],
-            to_address=payment_result["to_address"],
-            amount_xrp=row.amount_xrp,
-            status=payment_result["status"],
-        )
-    )
-    _record_history(
-        db,
-        user_wallet_address=row.user_wallet_address,
-        event_type="subscription_payment",
-        tx_hash=payment_result["tx_hash"],
-        counterparty_address=row.merchant_wallet_address,
-        amount=row.amount_xrp,
-        currency="XRP",
-        status=payment_result["status"],
-    )
-
-    row.last_tx_hash = payment_result["tx_hash"]
-    row.next_payment_date = row.next_payment_date + timedelta(days=row.interval_days)
-    row.updated_at = datetime.now(timezone.utc)
-    _apply_spending(db, row.user_wallet_address, row.amount_xrp, "XRP")
-
+    row = UserProfile(username=payload.username, wallet_address=payload.wallet_address)
+    db.add(row)
     db.commit()
     db.refresh(row)
-
     return _success(
-        "Subscription payment processed",
+        "User profile created",
         {
-            "subscription_id": row.id,
-            "last_tx_hash": row.last_tx_hash,
-            "status": row.status,
-            "next_payment_date": row.next_payment_date.isoformat(),
+            "id": row.id,
+            "username": row.username,
+            "wallet_address": row.wallet_address,
         },
     )
 
 
-# Cancel subscription and block future processing.
-@router.post("/subscriptions/{subscription_id}/cancel", response_model=ApiResponse)
-def cancel_subscription(subscription_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+# Create or update vendor and return shared-secret credentials.
+def upsert_vendor(payload: VendorCreateRequest, db: Session) -> dict[str, Any]:
+    if not _is_valid_classic_address(payload.wallet_address):
+        raise HTTPException(status_code=400, detail="Invalid wallet_address")
+
+    row = db.query(Vendor).filter(Vendor.vendor_code == payload.vendor_code).first()
+    shared_secret = (payload.shared_secret or "").strip() or _generate_shared_secret()
+    if row:
+        row.display_name = payload.display_name
+        row.wallet_address = payload.wallet_address
+        row.webhook_url = payload.webhook_url
+        row.shared_secret = shared_secret
+        row.is_active = True
+        row.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(row)
+        return _success(
+            "Vendor updated",
+            {
+                "id": row.id,
+                "vendor_code": row.vendor_code,
+                "display_name": row.display_name,
+                "wallet_address": row.wallet_address,
+                "webhook_url": row.webhook_url,
+                "shared_secret": row.shared_secret,
+                "is_active": row.is_active,
+            },
+        )
+
+    row = Vendor(
+        vendor_code=payload.vendor_code,
+        display_name=payload.display_name,
+        wallet_address=payload.wallet_address,
+        shared_secret=shared_secret,
+        webhook_url=payload.webhook_url,
+        is_active=True,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _success(
+        "Vendor created",
+        {
+            "id": row.id,
+            "vendor_code": row.vendor_code,
+            "display_name": row.display_name,
+            "wallet_address": row.wallet_address,
+            "webhook_url": row.webhook_url,
+            "shared_secret": row.shared_secret,
+            "is_active": row.is_active,
+        },
+    )
+
+
+# Return vendor profile for authenticated vendor.
+def get_vendor_me(request: Request, db: Session) -> dict[str, Any]:
+    vendor = _get_vendor_from_request(request, db)
+    return _success(
+        "Vendor profile",
+        {
+            "id": vendor.id,
+            "vendor_code": vendor.vendor_code,
+            "display_name": vendor.display_name,
+            "wallet_address": vendor.wallet_address,
+            "webhook_url": vendor.webhook_url,
+            "shared_secret": vendor.shared_secret,
+            "is_active": vendor.is_active,
+        },
+    )
+
+
+# Update authenticated vendor profile fields.
+def update_vendor(request: Request, payload: VendorUpdateRequest, db: Session) -> dict[str, Any]:
+    vendor = _get_vendor_from_request(request, db)
+    if payload.wallet_address:
+        if not _is_valid_classic_address(payload.wallet_address):
+            raise HTTPException(status_code=400, detail="Invalid wallet_address")
+        vendor.wallet_address = payload.wallet_address
+    if payload.display_name:
+        vendor.display_name = payload.display_name
+    if payload.webhook_url is not None:
+        vendor.webhook_url = payload.webhook_url
+    vendor.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(vendor)
+    return _success(
+        "Vendor updated",
+        {
+            "id": vendor.id,
+            "vendor_code": vendor.vendor_code,
+            "display_name": vendor.display_name,
+            "wallet_address": vendor.wallet_address,
+            "webhook_url": vendor.webhook_url,
+            "shared_secret": vendor.shared_secret,
+            "is_active": vendor.is_active,
+        },
+    )
+
+
+# Rotate shared secret for authenticated vendor.
+def regenerate_vendor_secret(request: Request, db: Session) -> dict[str, Any]:
+    vendor = _get_vendor_from_request(request, db)
+    vendor.shared_secret = _generate_shared_secret()
+    vendor.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(vendor)
+    return _success(
+        "Vendor shared secret regenerated",
+        {
+            "vendor_code": vendor.vendor_code,
+            "shared_secret": vendor.shared_secret,
+        },
+    )
+
+
+# Create a vendor-authenticated subscription payment request and signed contract.
+def create_subscription_request(
+    request: Request,
+    payload: SubscriptionRequestCreateRequest,
+    db: Session,
+) -> dict[str, Any]:
+    vendor = _get_vendor_from_request(request, db)
+    user_profile = db.query(UserProfile).filter(UserProfile.username == payload.username).first()
+    if not user_profile:
+        raise HTTPException(status_code=404, detail="Unknown username")
+
+    existing = (
+        db.query(Subscription)
+        .filter(Subscription.vendor_id == vendor.id)
+        .filter(Subscription.vendor_tx_id == payload.vendor_tx_id)
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Duplicate vendor_tx_id for this vendor")
+
+    contract_payload = _build_subscription_contract_payload(
+        vendor=vendor,
+        user_profile=user_profile,
+        vendor_tx_id=payload.vendor_tx_id,
+        amount_xrp=payload.amount_xrp,
+        interval_days=payload.interval_days,
+    )
+    contract_signature = _sign_subscription_contract(contract_payload, vendor.shared_secret)
+    contract_hash = _contract_hash(contract_payload)
+
+    today = date.today()
+    row = Subscription(
+        vendor_id=vendor.id,
+        user_profile_id=user_profile.id,
+        vendor_tx_id=payload.vendor_tx_id,
+        user_wallet_address=user_profile.wallet_address,
+        merchant_wallet_address=vendor.wallet_address,
+        amount_xrp=payload.amount_xrp,
+        interval_days=payload.interval_days,
+        status="pending",
+        request_status="pending",
+        contract_signature=contract_signature,
+        contract_hash=contract_hash,
+        contract_alg="HMAC-SHA256",
+        contract_version="v1",
+        start_date=today,
+        next_payment_date=today,
+        use_escrow=1,
+        escrow_amount_xrp=payload.amount_xrp,
+        escrow_status="not_started",
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    _send_vendor_webhook(
+        db,
+        vendor,
+        "subscription.requested",
+        {
+            "event": "subscription.requested",
+            "subscription_id": row.id,
+            "vendor_tx_id": row.vendor_tx_id,
+            "contract_hash": row.contract_hash,
+            "request_status": row.request_status,
+            "status": row.status,
+            "username": user_profile.username,
+            "user_wallet_address": row.user_wallet_address,
+            "merchant_wallet_address": row.merchant_wallet_address,
+            "amount_xrp": row.amount_xrp,
+            "interval_days": row.interval_days,
+        },
+    )
+
+    return _success(
+        "Subscription request created",
+        {
+            "ok": True,
+            "subscription_id": row.id,
+            "vendor_tx_id": row.vendor_tx_id,
+            "contract_hash": row.contract_hash,
+            "request_status": row.request_status,
+        },
+    )
+
+
+# Return pending requests for a username.
+def list_pending_subscription_requests(username: str, db: Session) -> dict[str, Any]:
+    profile = db.query(UserProfile).filter(UserProfile.username == username).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Unknown username")
+
+    rows = (
+        db.query(Subscription)
+        .filter(Subscription.user_profile_id == profile.id)
+        .filter(Subscription.request_status == "pending")
+        .order_by(Subscription.created_at.desc())
+        .all()
+    )
+    return _success("Pending subscriptions", [_subscription_to_dict(row) for row in rows])
+
+
+# Approve pending request, verify contract signature/payload, and create escrow.
+def approve_subscription_request(
+    subscription_id: int,
+    payload: SubscriptionApproveRequest,
+    db: Session,
+) -> dict[str, Any]:
     row = db.query(Subscription).filter(Subscription.id == subscription_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="Subscription not found")
+    if row.request_status != "pending":
+        raise HTTPException(status_code=409, detail="Subscription request is not pending")
 
-    if row.status == "cancelled":
-        return _success("Subscription already cancelled", {"id": row.id, "status": row.status})
+    profile = db.query(UserProfile).filter(UserProfile.id == row.user_profile_id).first()
+    if not profile or profile.username != payload.username:
+        raise HTTPException(status_code=400, detail="Username does not match subscription")
 
-    if bool(row.use_escrow) and row.escrow_status == "locked":
-        _cancel_subscription_escrow(db, row)
+    user_wallet = _wallet_from_seed(payload.user_seed)
+    if user_wallet.classic_address != row.user_wallet_address:
+        raise HTTPException(status_code=400, detail="Provided seed does not match subscribed user wallet")
 
-    row.status = "cancelled"
-    row.handshake_status = "cancelled"
+    vendor = db.query(Vendor).filter(Vendor.id == row.vendor_id).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    contract_payload = _build_subscription_contract_payload(
+        vendor=vendor,
+        user_profile=profile,
+        vendor_tx_id=row.vendor_tx_id,
+        amount_xrp=row.amount_xrp,
+        interval_days=row.interval_days,
+        version=row.contract_version or "v1",
+    )
+    _verify_subscription_contract(contract_payload, row.contract_signature, vendor.shared_secret)
+    expected_hash = _contract_hash(contract_payload)
+    if expected_hash != row.contract_hash:
+        raise HTTPException(status_code=400, detail="Contract hash mismatch")
+
+    escrow_result = _lock_subscription_escrow(db, row, payload.user_seed)
+
+    row.status = "active"
+    row.request_status = "approved"
+    row.approved_at = datetime.now(timezone.utc)
+    row.approved_by_username = payload.username
+    row.last_tx_hash = escrow_result.get("tx_hash")
     row.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(row)
+    _send_vendor_webhook(
+        db,
+        vendor,
+        "subscription.approved",
+        {
+            "event": "subscription.approved",
+            "subscription_id": row.id,
+            "vendor_tx_id": row.vendor_tx_id,
+            "contract_hash": row.contract_hash,
+            "request_status": row.request_status,
+            "status": row.status,
+            "escrow_create_tx_hash": row.escrow_create_tx_hash,
+            "approved_at": row.approved_at.isoformat() if row.approved_at else None,
+        },
+    )
 
-    return _success("Subscription cancelled", {"id": row.id, "status": row.status})
+    return _success(
+        "Subscription approved",
+        {
+            "ok": True,
+            "subscription_id": row.id,
+            "vendor_tx_id": row.vendor_tx_id,
+            "contract_hash": row.contract_hash,
+            "escrow_create_tx_hash": row.escrow_create_tx_hash,
+            "request_status": row.request_status,
+            "status": row.status,
+        },
+    )
+
+
+# Lookup subscription by contract hash for auditing/inspection.
+def get_subscription_by_contract(contract_hash: str, db: Session) -> dict[str, Any]:
+    row = db.query(Subscription).filter(Subscription.contract_hash == contract_hash).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    return _success("Subscription by contract", _subscription_to_dict(row))
+
+
+# Cancel by vendor shared-secret or user credentials.
+def cancel_subscription_request(
+    subscription_id: int,
+    request: Request,
+    payload: Optional[SubscriptionCancelRequest],
+    db: Session,
+) -> dict[str, Any]:
+    row = db.query(Subscription).filter(Subscription.id == subscription_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    if row.request_status == "cancelled":
+        return _success(
+            "Subscription already cancelled",
+            {
+                "id": row.id,
+                "status": row.status,
+                "request_status": row.request_status,
+            },
+        )
+
+    authorized = False
+    user_seed_for_escrow_cancel: Optional[str] = None
+    vendor_secret = request.headers.get(settings.VENDOR_SHARED_SECRET_HEADER, "").strip()
+    vendor: Optional[Vendor] = None
+    if vendor_secret:
+        vendor = _get_vendor_from_request(request, db)
+        if vendor.id == row.vendor_id:
+            authorized = True
+
+    if payload and payload.username and payload.user_seed:
+        profile = db.query(UserProfile).filter(UserProfile.id == row.user_profile_id).first()
+        user_wallet = _wallet_from_seed(payload.user_seed)
+        if profile and profile.username == payload.username and user_wallet.classic_address == row.user_wallet_address:
+            authorized = True
+            user_seed_for_escrow_cancel = payload.user_seed
+
+    if not authorized:
+        raise HTTPException(status_code=401, detail="Not authorized to cancel this subscription")
+
+    if row.escrow_status == "locked":
+        if not user_seed_for_escrow_cancel:
+            raise HTTPException(status_code=400, detail="user_seed is required to cancel locked escrow")
+        _cancel_subscription_escrow(db, row, user_seed_for_escrow_cancel)
+
+    row.status = "cancelled"
+    row.request_status = "cancelled"
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(row)
+    if not vendor:
+        vendor = db.query(Vendor).filter(Vendor.id == row.vendor_id).first()
+    if vendor:
+        _send_vendor_webhook(
+            db,
+            vendor,
+            "subscription.cancelled",
+            {
+                "event": "subscription.cancelled",
+                "subscription_id": row.id,
+                "vendor_tx_id": row.vendor_tx_id,
+                "contract_hash": row.contract_hash,
+                "request_status": row.request_status,
+                "status": row.status,
+            },
+        )
+    return _success(
+        "Subscription cancelled",
+        {
+            "id": row.id,
+            "status": row.status,
+            "request_status": row.request_status,
+            "contract_hash": row.contract_hash,
+            "vendor_tx_id": row.vendor_tx_id,
+        },
+    )
+
+
+# List all subscriptions for admin/dashboard views.
+def list_subscriptions(db: Session) -> dict[str, Any]:
+    rows = db.query(Subscription).order_by(Subscription.created_at.desc()).all()
+    return _success("Subscription list", [_subscription_to_dict(row) for row in rows])
+
+
+# Fetch one subscription by ID.
+def get_subscription(subscription_id: int, db: Session) -> dict[str, Any]:
+    row = db.query(Subscription).filter(Subscription.id == subscription_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    return _success("Subscription details", _subscription_to_dict(row))
 
 
 # Configure monthly spending guard values for a user.

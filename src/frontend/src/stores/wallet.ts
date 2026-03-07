@@ -36,6 +36,11 @@ export const useWalletStore = defineStore("wallet", {
 
     selectWallet(address: string) {
       this.selectedWallet = this.wallets.find((w) => w.address === address) || null;
+      if (this.selectedWallet) {
+        void this.fetchSelectedBalance();
+      } else {
+        this.balance = null;
+      }
     },
 
     async importWallet(seed: string) {

@@ -9,6 +9,16 @@ const dashboard = useDashboardStore();
 const data = computed(() => dashboard.data);
 const selectedAddress = computed(() => wallet.selectedWallet?.address || "");
 const errorText = computed(() => wallet.error || dashboard.error || "");
+const xrpBalance = computed(() => {
+  const raw = data.value?.balance_xrp;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+});
+const rlusdBalance = computed(() => {
+  const raw = data.value?.balance_rlusd;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+});
 
 async function load() {
   if (!selectedAddress.value) {
@@ -46,16 +56,17 @@ watch(
 
     <div class="cards" v-if="data">
       <article class="card">
-        <h4>Balance</h4>
-        <p>{{ data.balance_rlusd?.toFixed?.(2) ?? data.balance_rlusd }} RLUSD</p>
+        <h4>Wallet Balance</h4>
+        <p>{{ xrpBalance.toFixed(6) }} XRP</p>
+        <small>{{ rlusdBalance.toFixed(6) }} RLUSD</small>
       </article>
       <article class="card">
         <h4>Locked In Escrow</h4>
-        <p>{{ data.locked_in_escrow_xrp?.toFixed?.(2) ?? data.locked_in_escrow_xrp }} XRP</p>
+        <p>{{ Number(data.locked_in_escrow_xrp || 0).toFixed(6) }} XRP</p>
       </article>
       <article class="card">
         <h4>Monthly Guard</h4>
-        <p>{{ data.monthly_guard?.limit ?? 0 }} {{ data.monthly_guard?.currency ?? "RLUSD" }}</p>
+        <p>{{ Number(data.monthly_guard?.limit || 0).toFixed(2) }} {{ data.monthly_guard?.currency ?? "RLUSD" }}</p>
       </article>
     </div>
 
@@ -106,6 +117,7 @@ watch(
 }
 .card h4 { margin: 0 0 0.5rem; color: #5a79a4; font-size: 0.9rem; }
 .card p { margin: 0; color: #1f467d; font-weight: 800; font-size: 1.35rem; }
+.card small { color: #4d6f99; font-weight: 700; display: block; margin-top: 0.25rem; }
 .panel h3 { margin: 0 0 0.75rem; color: #1f467d; }
 .month-grid { display: grid; gap: 0.5rem; color: #35577f; }
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }

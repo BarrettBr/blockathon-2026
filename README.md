@@ -1,73 +1,15 @@
 # EquiPay Backend MVP
 
-Hackathon-ready FastAPI backend for XRPL Devnet using:
+FastAPI backend for XRPL Devnet with wallets, payments, vendor-managed subscriptions, escrow, and dashboard APIs.
+
+## Stack
 - Python 3.10+
 - FastAPI
 - SQLite + SQLAlchemy
 - xrpl-py
 
-This project is intentionally simple and monolithic:
-- `src/backend/api/main.py`
-- `src/backend/api/config.py`
-- `src/backend/api/db.py`
-- `src/backend/api/api.py`
-
-Detailed request/response interaction docs:
-- [docs/API_INTERACTION_GUIDE.md](/home/barrett/workspaces/github.com/blockathon-2026/docs/API_INTERACTION_GUIDE.md)
-- [docs/FRONTEND_USECASE_FLOW.md](/home/barrett/workspaces/github.com/blockathon-2026/docs/FRONTEND_USECASE_FLOW.md)
-
-## Important Hackathon Caveat
-Wallet seeds are stored in plaintext in SQLite for demo speed.
-This is **not production-safe**.
-
-## Alignment With Project Vision
-Current backend is close on core flows:
-- Wallet creation/import, balance checks, and payment sending are live on XRPL Devnet.
-- Subscriptions now use an explicit two-party handshake model before recurring processing.
-- Handshake approvals are recorded on-chain as XRP transactions with terms-hash memos.
-- Subscription terms are hashed and fixed per agreement (`terms_hash`), so processing uses the exact approved terms.
-- Users can cancel subscriptions at any time.
-
-Current escrow status:
-- Escrow lock/release/cancel flow is now implemented for subscriptions (`use_escrow=true`).
-- Remaining gap is advanced production escrow automation/recovery (migrations, retries, background reconciliation).
-
-## Test Status + Updated TODOs
-Latest local run (`pytest -q src/backend/api/tests`):
-- `6 passed`
-- Unit coverage includes: health, wallet import/list, payment persistence, subscription handshake + escrow process/cancel, RLUSD send endpoint, and dashboard/guard/history responses.
-- Integration coverage added (env-gated): XRPL escrow create/finish/cancel and RLUSD trust-line/payment.
-
-What worked:
-- Route wiring under `/api/v1`
-- DB writes/reads for wallets, payments, subscriptions
-- Handshake state transitions before process
-- Payment and subscription processing persistence paths
-
-TODO based on real test outcomes:
-- Add negative tests for XRPL failure responses/timeouts, faucet errors, and issuer/trust-line misconfiguration.
-- Add schema migration tooling (currently requires manual SQLite reset on schema changes).
-- Add periodic reconciliation job to confirm on-chain escrow state matches local DB.
-
-## Running Live Testnet Integration Tests
-Integration tests are in `src/backend/api/tests/test_integration_testnet.py` and are skipped unless required env vars are set.
-
-Escrow flow vars:
-- `TESTNET_USER_SEED`
-- `TESTNET_MERCHANT_SEED`
-- `TESTNET_ESCROW_AMOUNT_XRP` (optional, default `0.00001`)
-
-RLUSD flow vars:
-- `TESTNET_RLUSD_SENDER_SEED`
-- `TESTNET_RLUSD_RECEIVER_SEED`
-- `TESTNET_RLUSD_ISSUER`
-- `TESTNET_RLUSD_CURRENCY` (optional, default `RLUSD`)
-- `TESTNET_RLUSD_AMOUNT` (optional, default `0.01`)
-
-Run:
-```bash
-pytest -q src/backend/api/tests/test_integration_testnet.py -m integration
-```
+## Hackathon Caveat
+Seeds and vendor shared secrets are stored/handled in plaintext for MVP speed. This is not production-safe.
 
 ## Setup
 ```bash
@@ -76,164 +18,91 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Makefile Quick Commands
-```bash
-make setup
-make backend
-make frontend
-make test
-make test-integration
-```
-
-## Environment Variables
-Defaults are already set in `src/backend/api/config.py`.
-
-- `APP_NAME` (default: `EquiPay`)
-- `API_PREFIX` (default: `/api/v1`)
-- `HOST` (default: `0.0.0.0`)
-- `PORT` (default: `8000`)
-- `DEBUG` (default: `true`)
-- `CORS_ALLOW_ORIGINS` (comma-separated, default includes local Vite/localhost origins)
-- `SQLITE_URL` (default: `sqlite:///./equipay.db`)
-- `XRPL_RPC_URL` (default: `https://s.devnet.rippletest.net:51234`)
-- `XRPL_NETWORK` (default: `devnet`)
-- `XRPL_FAUCET_URL` (default: `https://faucet.devnet.rippletest.net`)
-- `RLUSD_CURRENCY` (default: `RLUSD`)
-- `RLUSD_ISSUER` (default: empty, set this for RLUSD transfers/balance)
-- `RLUSD_ISSUER_SEED` (default: empty, needed for RLUSD bootstrap mint)
-- `OPERATOR_WALLET_ADDRESS` (default: empty, optional service wallet address)
-- `OPERATOR_WALLET_SEED` (default: empty, enables merchant-seed fallback for service actions)
-- `AUTO_FUND_NEW_WALLETS` (default: `true`)
-- `HANDSHAKE_APPROVAL_DROPS` (default: `1`)
-- `DASHBOARD_RECENT_LIMIT` (default: `10`)
-- `FAUCET_RETRIES` (default: `2`)
-- `XRPL_REQUEST_TIMEOUT_SECONDS` (default: `20`)
-
-## Issuer + Operator Setup (Recommended)
-For RLUSD demos, use two backend-controlled wallets in `.env`:
-- `RLUSD_ISSUER` + `RLUSD_ISSUER_SEED`: the issuer account that mints RLUSD.
-- `OPERATOR_WALLET_ADDRESS` + `OPERATOR_WALLET_SEED`: your service wallet used for merchant-side subscription actions.
-
-With operator seed configured, frontend can call merchant endpoints without sending `merchant_seed` each time.
-
-## Run
-From `src/backend/api`:
+Run from `src/backend/api`:
 ```bash
 uvicorn main:app --reload
 ```
 
-If you already had an older DB file, delete `src/backend/api/equipay.db` (or your configured SQLite file) after schema changes and restart.
-
-Swagger docs:
+Swagger:
 - `http://127.0.0.1:8000/docs`
 
+## Environment Variables
+Defaults are in `src/backend/api/config.py`.
+
+Core/XRPL:
+- `APP_NAME`, `API_PREFIX`, `HOST`, `PORT`, `DEBUG`
+- `CORS_ALLOW_ORIGINS`
+- `SQLITE_URL`
+- `XRPL_RPC_URL`, `XRPL_NETWORK`, `XRPL_FAUCET_URL`
+
+RLUSD:
+- `RLUSD_CURRENCY`, `RLUSD_ISSUER`, `RLUSD_ISSUER_SEED`
+
+Vendor auth/webhooks:
+- `VENDOR_SHARED_SECRET_HEADER` (default `X-Vendor-Secret`)
+- `WEBHOOK_SIGNATURE_HEADER` (default `X-Equipay-Signature`)
+- `WEBHOOK_TIMEOUT_SECONDS`
+
+Misc:
+- `AUTO_FUND_NEW_WALLETS`, `FAUCET_RETRIES`, `XRPL_REQUEST_TIMEOUT_SECONDS`
+- `DASHBOARD_RECENT_LIMIT`
+
 ## API Endpoints
-- `GET /api/v1/health`
-- `POST /api/v1/wallets/create`
-- `POST /api/v1/wallets/import`
-- `POST /api/v1/wallets/bootstrap-rlusd`
-- `GET /api/v1/wallets/{address}/balance`
-- `GET /api/v1/wallets`
-- `POST /api/v1/payments/send`
-- `POST /api/v1/payments/send-rlusd`
-- `GET /api/v1/payments/{tx_hash}`
-- `GET /api/v1/payments`
-- `POST /api/v1/subscriptions/create`
-- `POST /api/v1/subscriptions/{id}/handshake/user-approve`
-- `POST /api/v1/subscriptions/{id}/handshake/service-approve` (merchant_seed optional if operator seed configured)
-- `GET /api/v1/subscriptions`
-- `GET /api/v1/subscriptions/user/{user_wallet_address}`
-- `GET /api/v1/subscriptions/{id}`
-- `POST /api/v1/subscriptions/{id}/process` (merchant_seed optional if operator seed configured)
-- `POST /api/v1/subscriptions/{id}/cancel`
-- `POST /api/v1/spending-guard/set`
-- `GET /api/v1/spending-guard/{user_wallet_address}`
-- `GET /api/v1/history/{user_wallet_address}`
-- `GET /api/v1/dashboard/{user_wallet_address}`
+- Health: `GET /api/v1/health`
+- Wallets: `POST /wallets/create`, `POST /wallets/import`, `POST /wallets/bootstrap-rlusd`, `GET /wallets`, `GET /wallets/{address}/balance`
+- Payments: `POST /payments/send`, `POST /payments/send-rlusd`, `GET /payments`, `GET /payments/{tx_hash}`
+- Users: `POST /users/register`
+- Vendors: `POST /vendors/upsert`, `GET /vendors/me`, `PATCH /vendors/me`, `POST /vendors/me/secret/regenerate`
+- Subscriptions: `POST /subscriptions/requests`, `GET /subscriptions/pending/{username}`, `POST /subscriptions/{id}/approve`, `POST /subscriptions/{id}/cancel`, `GET /subscriptions`, `GET /subscriptions/{id}`, `GET /subscriptions/contract/{contract_hash}`
+- Dashboard: `POST /spending-guard/set`, `GET /spending-guard/{wallet}`, `GET /history/{wallet}`, `GET /dashboard/{wallet}`
 
-## Example Curl Flows
-
-### 1) Create Wallet
+## Vendor + Subscription Quick Flow
+1. Register user profile:
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/wallets/create
-```
-
-### 2) Import Wallet
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/wallets/import \
+curl -X POST http://127.0.0.1:8000/api/v1/users/register \
   -H "Content-Type: application/json" \
-  -d '{"seed":"sEdExampleUserSecretValue"}'
+  -d '{"username":"alice","wallet_address":"rUSER..."}'
 ```
 
-### 3) List Wallets
+2. Create/update vendor (returns shared secret):
 ```bash
-curl http://127.0.0.1:8000/api/v1/wallets
-```
-
-### 4) Get Wallet Balance
-```bash
-curl http://127.0.0.1:8000/api/v1/wallets/rXXXXXXXXXXXXXXXXXXXXXXXXXXXX/balance
-```
-
-### 5) Send Payment
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/payments/send \
+curl -X POST http://127.0.0.1:8000/api/v1/vendors/upsert \
   -H "Content-Type: application/json" \
   -d '{
-    "sender_seed":"sEdExampleUserSecretValue",
-    "destination_address":"rXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-    "amount_xrp":0.1
+    "vendor_code":"spotify",
+    "display_name":"Spotify",
+    "wallet_address":"rVENDOR...",
+    "webhook_url":"https://vendor.example.com/equipay/webhook"
   }'
 ```
 
-### 6) Get Payment By Hash
+3. Vendor creates subscription request:
 ```bash
-curl http://127.0.0.1:8000/api/v1/payments/PUT_TX_HASH_HERE
-```
-
-### 7) List Payments
-```bash
-curl http://127.0.0.1:8000/api/v1/payments
-```
-
-### 8) Create Subscription
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/create \
+curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/requests \
   -H "Content-Type: application/json" \
-  -d '{
-    "user_wallet_address":"rUSER...",
-    "merchant_wallet_address":"rMERCHANT...",
-    "user_seed":"sEdExampleUserSecretValue",
-    "amount_xrp":0.25,
-    "interval_days":30
-  }'
+  -H "X-Vendor-Secret: VENDOR_SHARED_SECRET" \
+  -d '{"vendor_tx_id":"VTX-001","username":"alice","amount_xrp":1.25,"interval_days":30}'
 ```
 
-### 9) Process Subscription Payment
+4. User approves (creates escrow):
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/process
-```
-
-### 10) User Approves Handshake (on-chain)
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/handshake/user-approve \
+curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/approve \
   -H "Content-Type: application/json" \
-  -d '{"user_seed":"sEdExampleUserSecretValue"}'
+  -d '{"username":"alice","user_seed":"sEdExample..."}'
 ```
 
-### 11) Service Approves Handshake (on-chain)
+5. Cancel (vendor or user):
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/handshake/service-approve \
-  -H "Content-Type: application/json" \
-  -d '{"merchant_seed":"sEdExampleMerchantSecretValue"}'
+curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/cancel \
+  -H "X-Vendor-Secret: VENDOR_SHARED_SECRET"
 ```
 
-### 12) Cancel Subscription
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/cancel
-```
+Webhook events are signed and sent to the configured vendor webhook URL for:
+- `subscription.requested`
+- `subscription.approved`
+- `subscription.cancelled`
+- `payment.sent` (when vendor-authenticated payment send calls are used)
 
-### 13) List Subscriptions
-```bash
-curl http://127.0.0.1:8000/api/v1/subscriptions
-```
+See:
+- [docs/SUBSCRIPTION_FLOW_GUIDE.md](/home/barrett/workspaces/github.com/blockathon-2026/docs/SUBSCRIPTION_FLOW_GUIDE.md)
+- [docs/API_INTERACTION_GUIDE.md](/home/barrett/workspaces/github.com/blockathon-2026/docs/API_INTERACTION_GUIDE.md)

@@ -3,7 +3,9 @@ import { createRouter, createWebHistory } from "vue-router";
 import AppLayout from "@/layout/AppLayout.vue";
 import DashboardView from "@/views/DashboardView.vue";
 import WalletView from "@/views/WalletView.vue";
-import SubscriptionsView from "@/views/SubscriptionsView.vue";
+import SubscriptionVendorCreationView from "@/views/SubscriptionVendorCreationView.vue";
+import SubscriptionManageView from "@/views/SubscriptionManageView.vue";
+import SubscriptionHistoryView from "@/views/SubscriptionHistoryView.vue";
 import SpendingGuardView from "@/views/SpendingGuardView.vue";
 import HistoryView from "@/views/HistoryView.vue";
 
@@ -17,7 +19,22 @@ const router = createRouter({
         { path: "", redirect: "/dashboard" },
         { path: "dashboard", name: "dashboard", component: DashboardView },
         { path: "wallet", name: "wallet", component: WalletView },
-        { path: "subscriptions", name: "subscriptions", component: SubscriptionsView },
+        { path: "subscriptions", redirect: "/subscriptions/manage" },
+        {
+          path: "subscriptions/vendor-creation",
+          name: "subscription-vendor-creation",
+          component: SubscriptionVendorCreationView,
+        },
+        {
+          path: "subscriptions/manage",
+          name: "subscription-manage",
+          component: SubscriptionManageView,
+        },
+        {
+          path: "subscriptions/history",
+          name: "subscription-history",
+          component: SubscriptionHistoryView,
+        },
         { path: "spending-guard", name: "spending-guard", component: SpendingGuardView },
         { path: "history", name: "history", component: HistoryView },
       ],

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useWalletStore } from "@/stores/wallet";
 import apiHelper from "@/utils/apiHelper";
 
@@ -13,16 +13,29 @@ const bootstrapAmount = ref(100);
 const message = ref("");
 const loading = ref(false);
 
+function toNumber(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
 const selectedAddress = computed(() => wallet.selectedWallet?.address ?? "");
 const xrpDisplay = computed(() => {
-  const value = wallet.balance?.balance_xrp;
-  if (typeof value !== "number") return "0.000000";
+  const value = toNumber(wallet.balance?.balance_xrp);
   return value.toFixed(6);
 });
 const rlusdDisplay = computed(() => {
-  const value = wallet.balance?.rlusd_balance;
-  if (typeof value !== "number") return "0";
-  return value.toString();
+  const direct = toNumber(wallet.balance?.rlusd_balance);
+  if (direct > 0) return direct.toFixed(6);
+
+  const issued = Array.isArray(wallet.balance?.issued_balances) ? wallet.balance.issued_balances : [];
+  const fallback = issued
+    .filter((row: any) => String(row?.currency || "").toUpperCase() === "RLUSD")
+    .reduce((sum: number, row: any) => sum + toNumber(row?.balance), 0);
+  return fallback.toFixed(6);
 });
 
 async function connectWallet() {
@@ -95,6 +108,21 @@ async function sendRlusd() {
     loading.value = false;
   }
 }
+
+onMounted(async () => {
+  if (wallet.selectedWallet) {
+    await wallet.fetchSelectedBalance();
+  }
+});
+
+watch(
+  () => wallet.selectedWallet?.address,
+  async (address) => {
+    if (address) {
+      await wallet.fetchSelectedBalance();
+    }
+  },
+);
 </script>
 
 <template>
@@ -153,6 +181,34 @@ async function sendRlusd() {
       </div>
 
       <p class="message">{{ message }}</p>
+    </article>
+
+    <article class="panel" v-if="wallet.balance">
+      <h3>Issued Currency Balances</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Currency</th>
+              <th>Issuer</th>
+              <th>Balance</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="line in wallet.balance.issued_balances || []"
+              :key="`${line.currency_raw}-${line.issuer}`"
+            >
+              <td>{{ line.currency }}</td>
+              <td>{{ line.issuer }}</td>
+              <td>{{ line.balance }}</td>
+            </tr>
+            <tr v-if="!(wallet.balance.issued_balances || []).length">
+              <td colspan="3">No issued-currency trust lines found.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </article>
   </section>
 </template>
@@ -233,6 +289,24 @@ button:disabled {
   font-weight: 600;
   min-height: 1.2rem;
   margin: 0;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 560px;
+}
+
+th,
+td {
+  border-bottom: 1px solid #e4efff;
+  padding: 0.45rem;
+  text-align: left;
+  color: #35577f;
 }
 
 @media (max-width: 900px) {

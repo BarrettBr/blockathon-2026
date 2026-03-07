@@ -22,8 +22,14 @@ const toggleMenu = (event: Event) => {
 };
 
 const walletBalance = computed(() => {
-  const value = wallet.balance?.rlusd_balance;
-  return typeof value === "number" ? value.toFixed(2) : "--";
+  const direct = Number(wallet.balance?.rlusd_balance);
+  if (Number.isFinite(direct) && direct > 0) return direct.toFixed(2);
+
+  const issued = Array.isArray(wallet.balance?.issued_balances) ? wallet.balance.issued_balances : [];
+  const fallback = issued
+    .filter((row: any) => String(row?.currency || "").toUpperCase() === "RLUSD")
+    .reduce((sum: number, row: any) => sum + Number(row?.balance || 0), 0);
+  return Number.isFinite(fallback) ? fallback.toFixed(2) : "--";
 });
 </script>
 

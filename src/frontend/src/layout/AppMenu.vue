@@ -4,7 +4,14 @@ import AppMenuItem from "./AppMenuItem.vue";
 const items = [
   { label: "Dashboard", to: "/dashboard" },
   { label: "Wallet", to: "/wallet" },
-  { label: "Subscriptions", to: "/subscriptions" },
+  {
+    label: "Subscriptions",
+    children: [
+      { label: "Vendor Creation", to: "/subscriptions/vendor-creation" },
+      { label: "Manage Subscriptions", to: "/subscriptions/manage" },
+      { label: "Subscription History", to: "/subscriptions/history" },
+    ],
+  },
   { label: "Spending Guard", to: "/spending-guard" },
   { label: "History", to: "/history" },
 ];
