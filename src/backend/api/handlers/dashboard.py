@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 import core
-from db import UserProfile, get_db
+from db import get_db
 from handlers.auth import get_current_user
-from schemas import ApiResponse, SpendingGuardSetRequest
+from schemas import ApiResponse, SpendingGuardSetRequest, UserProfileSchema
 
 
 router = APIRouter(tags=["dashboard"])
@@ -34,7 +34,7 @@ def get_user_history(
 @router.get("/dashboard/aggregate", response_model=ApiResponse)
 def get_aggregate_dashboard(
     db: Session = Depends(get_db),
-    current_user: UserProfile = Depends(get_current_user),
+    current_user: UserProfileSchema = Depends(get_current_user),
 ):
     return core.get_dashboard_aggregate(current_user, db)
 

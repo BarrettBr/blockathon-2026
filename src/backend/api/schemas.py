@@ -92,3 +92,11 @@ class SnapshotAskRequest(BaseModel):
 class ApiResponse(BaseModel):
     message: str
     data: Any
+
+class UserProfileSchema(BaseModel):
+    id: int
+    username: str
+    wallet_address: str
+
+    class Config:
+        from_attributes = True

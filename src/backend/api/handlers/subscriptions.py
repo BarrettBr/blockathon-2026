@@ -4,6 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
+from handlers.auth import get_current_user
 
 import core
 from db import get_db
@@ -16,6 +17,7 @@ from schemas import (
     UserProfileRegisterRequest,
     VendorCreateRequest,
     VendorUpdateRequest,
+    UserProfileSchema,
 )
 
 
@@ -66,12 +68,17 @@ def approve_subscription_request(
     subscription_id: int,
     payload: SubscriptionApproveRequest,
     db: Session = Depends(get_db),
+    current_user: UserProfileSchema = Depends(get_current_user),
 ):
     return core.approve_subscription_request(subscription_id, payload, db)
 
 
 @router.get("/subscriptions/{subscription_id}/cycles", response_model=ApiResponse)
-def list_subscription_cycles(subscription_id: int, db: Session = Depends(get_db)):
+def list_subscription_cycles(
+    subscription_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserProfileSchema = Depends(get_current_user),
+):
     return core.list_subscription_cycles(subscription_id, db)
 
 
@@ -80,22 +87,34 @@ def process_subscription_cycle(
     subscription_id: int,
     payload: SubscriptionProcessCycleRequest,
     db: Session = Depends(get_db),
+    current_user: UserProfileSchema = Depends(get_current_user),
 ):
     return core.process_subscription_cycle(subscription_id, payload, db)
 
 
 @router.get("/subscriptions/{subscription_id}", response_model=ApiResponse)
-def get_subscription(subscription_id: int, db: Session = Depends(get_db)):
+def get_subscription(
+    subscription_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserProfileSchema = Depends(get_current_user)
+):
     return core.get_subscription(subscription_id, db)
 
 
 @router.get("/subscriptions/contract/{contract_hash}", response_model=ApiResponse)
-def get_subscription_by_contract(contract_hash: str, db: Session = Depends(get_db)):
+def get_subscription_by_contract(
+    contract_hash: str,
+    db: Session = Depends(get_db),
+    current_user: UserProfileSchema = Depends(get_current_user),
+):
     return core.get_subscription_by_contract(contract_hash, db)
 
 
 @router.get("/subscriptions", response_model=ApiResponse)
-def list_subscriptions(db: Session = Depends(get_db)):
+def list_subscriptions(
+    db: Session = Depends(get_db),
+    current_user: UserProfileSchema = Depends(get_current_user),
+):
     return core.list_subscriptions(db)
 
 
@@ -105,5 +124,6 @@ def cancel_subscription(
     request: Request,
     payload: Optional[SubscriptionCancelRequest] = None,
     db: Session = Depends(get_db),
+    current_user: UserProfileSchema = Depends(get_current_user),
 ):
     return core.cancel_subscription_request(subscription_id, request, payload, db)
