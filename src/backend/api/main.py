@@ -1,9 +1,4 @@
-"""Main app wiring and local run entrypoint.
-
-TODO:
-- Add startup dependency checks (DB connectivity, XRPL ping).
-- Add structured logging and graceful shutdown hooks.
-"""
+"""Main app wiring and local run entrypoint."""
 
 import uvicorn
 from fastapi import FastAPI

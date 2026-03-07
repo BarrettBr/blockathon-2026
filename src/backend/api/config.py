@@ -1,11 +1,4 @@
-"""Central config for hackathon backend.
-
-Edit values here or via env vars while iterating quickly.
-
-TODO:
-- Add secret management support (vault/doppler/1password env sync).
-- Add separate config profiles for local/dev/staging/prod.
-"""
+"""Central config for the XRPL Financial Hub hackathon MVP."""
 
 from dataclasses import dataclass
 import os
@@ -32,6 +25,8 @@ class Settings:
         "true",
         "yes",
     }
+    FAUCET_RETRIES: int = int(os.getenv("FAUCET_RETRIES", "2"))
+    XRPL_REQUEST_TIMEOUT_SECONDS: int = int(os.getenv("XRPL_REQUEST_TIMEOUT_SECONDS", "20"))
 
 
 settings = Settings()

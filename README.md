@@ -1,60 +1,136 @@
-# XRPL Financial Hub Backend (Hackathon Skeleton)
+# XRPL Financial Hub Backend MVP
 
-Monolithic backend for fast iteration:
-- `src/backend/api/main.py`: app wiring + startup + local run
-- `src/backend/api/api.py`: all API endpoints
-- `src/backend/api/db.py`: SQLAlchemy setup + models
-- `src/backend/api/config.py`: environment-driven config
+Hackathon-ready FastAPI backend for XRPL Testnet using:
+- Python 3.10+
+- FastAPI
+- SQLite + SQLAlchemy
+- xrpl-py
 
-## Current Status
-- FastAPI app is wired and runs under `/api/v1`.
-- SQLite tables are auto-created on startup.
-- Basic XRPL flows are implemented:
-  - create wallet (optional faucet fund)
-  - import/connect wallet by seed
-  - wallet balance lookup
-  - payment submit + payment status lookup
-- Subscription endpoints are DB-backed placeholders (no escrow logic yet).
-
-## Quick Start
-1. Install dependencies:
-```bash
-pip install fastapi uvicorn sqlalchemy xrpl-py
-```
-2. Run API:
-```bash
-cd src/backend/api
-python3 main.py
-```
-3. Open docs:
-- `http://localhost:8000/docs`
-
-## What Still Needs To Be Done
-### High Priority
-- Security hardening:
-  - remove plaintext seed storage in DB
-  - add auth for sensitive endpoints
-  - add input validation for XRPL addresses and amount precision
-- Error handling:
-  - normalize API error format
-  - map XRPL exceptions to stable status codes/messages
-- Payments:
-  - support destination tags and issued currencies
-  - verify tx finality before reporting success
-
-### By File
-- `src/backend/api/config.py`
-  - add separate profiles for local/devnet/testnet
-  - add rate limit and secret management settings
-- `src/backend/api/db.py`
-  - add migrations (`alembic`) and schema versioning
-  - add indexes/constraints for scale and integrity
-- `src/backend/api/api.py`
-  - split business logic from route handlers if complexity grows
-  - implement escrow-backed subscription flow
-  - add idempotency for payment submission
+This project is intentionally simple and monolithic:
 - `src/backend/api/main.py`
-  - add structured logging, startup checks, and graceful shutdown hooks
+- `src/backend/api/config.py`
+- `src/backend/api/db.py`
+- `src/backend/api/api.py`
 
-## Extension Guide
-See [docs/EXTENDING_BACKEND.md](/home/barrett/workspaces/github.com/blockathon-2026/docs/EXTENDING_BACKEND.md) for a practical guide to extend this quickly.
+## Important Hackathon Caveat
+Wallet seeds are stored in plaintext in SQLite for demo speed.
+This is **not production-safe**.
+
+## Setup
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+## Environment Variables
+Defaults are already set in `src/backend/api/config.py`.
+
+- `APP_NAME` (default: `XRPL Financial Hub`)
+- `API_PREFIX` (default: `/api/v1`)
+- `HOST` (default: `0.0.0.0`)
+- `PORT` (default: `8000`)
+- `DEBUG` (default: `true`)
+- `SQLITE_URL` (default: `sqlite:///./xrpl_financial_hub.db`)
+- `XRPL_RPC_URL` (default: `https://s.altnet.rippletest.net:51234`)
+- `XRPL_NETWORK` (default: `testnet`)
+- `AUTO_FUND_NEW_WALLETS` (default: `true`)
+- `FAUCET_RETRIES` (default: `2`)
+- `XRPL_REQUEST_TIMEOUT_SECONDS` (default: `20`)
+
+## Run
+From `src/backend/api`:
+```bash
+uvicorn main:app --reload
+```
+
+Swagger docs:
+- `http://127.0.0.1:8000/docs`
+
+## API Endpoints
+- `GET /api/v1/health`
+- `POST /api/v1/wallets/create`
+- `POST /api/v1/wallets/import`
+- `GET /api/v1/wallets/{address}/balance`
+- `GET /api/v1/wallets`
+- `POST /api/v1/payments/send`
+- `GET /api/v1/payments/{tx_hash}`
+- `GET /api/v1/payments`
+- `POST /api/v1/subscriptions/create`
+- `GET /api/v1/subscriptions`
+- `GET /api/v1/subscriptions/{id}`
+- `POST /api/v1/subscriptions/{id}/process`
+- `POST /api/v1/subscriptions/{id}/cancel`
+
+## Example Curl Flows
+
+### 1) Create Wallet
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/wallets/create
+```
+
+### 2) Import Wallet
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/wallets/import \
+  -H "Content-Type: application/json" \
+  -d '{"seed":"sEd..."}'
+```
+
+### 3) List Wallets
+```bash
+curl http://127.0.0.1:8000/api/v1/wallets
+```
+
+### 4) Get Wallet Balance
+```bash
+curl http://127.0.0.1:8000/api/v1/wallets/rXXXXXXXXXXXXXXXXXXXXXXXXXXXX/balance
+```
+
+### 5) Send Payment
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/payments/send \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sender_seed":"sEd...",
+    "destination_address":"rXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "amount_xrp":0.1
+  }'
+```
+
+### 6) Get Payment By Hash
+```bash
+curl http://127.0.0.1:8000/api/v1/payments/PUT_TX_HASH_HERE
+```
+
+### 7) List Payments
+```bash
+curl http://127.0.0.1:8000/api/v1/payments
+```
+
+### 8) Create Subscription
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/create \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_wallet_address":"rUSER...",
+    "merchant_wallet_address":"rMERCHANT...",
+    "user_seed":"sEd...",
+    "amount_xrp":0.25,
+    "interval_days":30
+  }'
+```
+
+### 9) Process Subscription Payment
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/process
+```
+
+### 10) Cancel Subscription
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/cancel
+```
+
+### 11) List Subscriptions
+```bash
+curl http://127.0.0.1:8000/api/v1/subscriptions
+```
