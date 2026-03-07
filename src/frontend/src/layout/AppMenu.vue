@@ -12,6 +12,7 @@ const items = [
       { label: "Subscription History", to: "/subscriptions/history" },
     ],
   },
+  { label: "Snapshot", to: "/snapshots" },
   { label: "Spending Guard", to: "/spending-guard" },
   { label: "History", to: "/history" },
 ];
@@ -19,7 +20,7 @@ const items = [
 
 <template>
   <nav class="menu" aria-label="Main">
-    <AppMenuItem v-for="item in items" :key="item.to" :item="item" />
+    <AppMenuItem v-for="item in items" :key="item.to || item.label" :item="item" />
   </nav>
 </template>
 

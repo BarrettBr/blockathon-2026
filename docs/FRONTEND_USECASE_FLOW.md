@@ -44,6 +44,16 @@ Base URL: `http://127.0.0.1:8000/api/v1`
 - `GET /spending-guard/{user_wallet_address}`
 - `GET /history/{user_wallet_address}?limit=50`
 
+## 5) Financial Snapshots (Auth Required)
+1. Create snapshot:
+   - `POST /snapshots`
+2. List snapshots:
+   - `GET /snapshots`
+3. Open snapshot:
+   - `GET /snapshots/{id}`
+4. Ask Gemini about snapshot:
+   - `POST /snapshots/{id}/ask`
+
 ## Typical Failure Handling
 - `400`: invalid seed/address/payload/contract mismatch
 - `401`: vendor shared-secret header invalid or missing

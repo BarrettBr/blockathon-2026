@@ -135,14 +135,15 @@ async function regenerateSecret() {
 <style scoped>
 .stack { display: grid; gap: 1rem; }
 .panel {
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.97);
   border: 1px solid #dceaff;
   border-radius: 14px;
   padding: 1rem;
-  max-width: 900px;
+  width: 100%;
+  max-width: 1200px;
 }
 h3 { margin: 0 0 0.7rem; color: #1f467d; }
-label { display: block; color: #597aa6; font-size: 0.86rem; margin-top: 0.45rem; }
+label { display: block; color: #355880; font-size: 0.9rem; margin-top: 0.45rem; }
 input {
   width: 100%;
   border: 1px solid #cfe0fb;

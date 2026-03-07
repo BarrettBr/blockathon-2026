@@ -16,8 +16,8 @@ export const useAuthStore = defineStore("auth", () => {
 		localStorage.setItem("username", u);
 	}
 
-	async function register(u: string, password: string, walletAddress: string) {
-		await apiHelper.register({ username: u, password, wallet_address: walletAddress });
+	async function register(u: string, password: string) {
+		await apiHelper.register({ username: u, password });
 		await login(u, password);
 	}
 

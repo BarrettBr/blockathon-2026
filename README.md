@@ -55,6 +55,16 @@ Vendor auth/webhooks:
 - `WEBHOOK_SIGNATURE_HEADER` (default `X-Equipay-Signature`)
 - `WEBHOOK_TIMEOUT_SECONDS`
 
+Snapshot/AI:
+- `PINATA_JWT`
+- `PINATA_UPLOAD_URL` (default `https://api.pinata.cloud/pinning/pinJSONToIPFS`)
+- `PINATA_GATEWAY_BASE_URL` (default `https://gateway.pinata.cloud/ipfs`)
+- `PINATA_TIMEOUT_SECONDS`
+- `SNAPSHOT_DEFAULT_DAYS`
+- `GEMINI_API_KEY`
+- `GEMINI_MODEL` (default `gemini-1.5-flash`)
+- `GEMINI_API_BASE_URL`
+
 Misc:
 - `AUTO_FUND_NEW_WALLETS`, `FAUCET_RETRIES`, `XRPL_REQUEST_TIMEOUT_SECONDS`
 - `DASHBOARD_RECENT_LIMIT`
@@ -75,6 +85,11 @@ Misc:
   - `GET /subscriptions`
   - `GET /subscriptions/{id}`
   - `GET /subscriptions/contract/{contract_hash}`
+- Snapshots (auth required):
+  - `POST /snapshots`
+  - `GET /snapshots`
+  - `GET /snapshots/{id}`
+  - `POST /snapshots/{id}/ask`
 - Dashboard: `POST /spending-guard/set`, `GET /spending-guard/{wallet}`, `GET /history/{wallet}`, `GET /dashboard/{wallet}`
 
 ## Quick Subscription Flow
@@ -132,6 +147,14 @@ Webhook events are signed and sent to the configured vendor webhook URL for:
 - `subscription.cancelled`
 - `payment.sent` (when vendor-authenticated payment send calls are used)
 
+## Financial Snapshots
+Snapshots are immutable JSON artifacts generated from current DB financial records (payments, subscriptions, cycles, history), uploaded to Pinata, and indexed by metadata in SQLite.
+
+- List page uses DB metadata only.
+- Full artifact is fetched from Pinata only on open.
+- Gemini Q&A (`/snapshots/{id}/ask`) is grounded on the immutable snapshot artifact, not live data.
+
 See:
 - [docs/SUBSCRIPTION_FLOW_GUIDE.md](/home/barrett/workspaces/github.com/blockathon-2026/docs/SUBSCRIPTION_FLOW_GUIDE.md)
 - [docs/API_INTERACTION_GUIDE.md](/home/barrett/workspaces/github.com/blockathon-2026/docs/API_INTERACTION_GUIDE.md)
+- [docs/SNAPSHOT_GUIDE.md](/home/barrett/workspaces/github.com/blockathon-2026/docs/SNAPSHOT_GUIDE.md)

@@ -9,7 +9,6 @@ const router = useRouter();
 const mode = ref<"login" | "register">("login");
 const username = ref("");
 const password = ref("");
-const walletAddress = ref("");
 const error = ref("");
 const loading = ref(false);
 
@@ -20,7 +19,7 @@ async function submit() {
 	if (mode.value === "login") {
 	  await auth.login(username.value, password.value);
 	} else {
-	  await auth.register(username.value, password.value, walletAddress.value);
+	  await auth.register(username.value, password.value);
 	}
 	router.push("/dashboard");
   } catch (e: any) {
@@ -43,7 +42,6 @@ async function submit() {
 			<div class="fields">
 				<input v-model="username" placeholder="Username" />
 				<input v-model="password" type="password" placeholder="Password" />
-				<input v-if="mode === 'register'" v-model="walletAddress" placeholder="Wallet address (rXXX...)" />
 			</div>
 
 			<p v-if="error" class="error">{{ error }}</p>

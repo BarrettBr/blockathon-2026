@@ -9,6 +9,11 @@ class WalletImportRequest(BaseModel):
     seed: str = Field(..., min_length=8)
 
 
+class WalletConnectRequest(BaseModel):
+    seed: str = Field(..., min_length=8)
+    nickname: str = Field(..., min_length=2, max_length=64)
+
+
 class UserProfileRegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=128)
     wallet_address: str = Field(..., min_length=25)
@@ -71,6 +76,17 @@ class SpendingGuardSetRequest(BaseModel):
     user_wallet_address: str = Field(..., min_length=25)
     monthly_limit: float = Field(..., ge=0)
     currency: str = Field(default="RLUSD", min_length=3, max_length=16)
+
+
+class SnapshotCreateRequest(BaseModel):
+    title: Optional[str] = Field(default=None, max_length=256)
+    days: Optional[int] = Field(default=None, ge=1, le=3650)
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+
+class SnapshotAskRequest(BaseModel):
+    question: str = Field(..., min_length=3, max_length=4000)
 
 
 class ApiResponse(BaseModel):

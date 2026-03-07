@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { useLayoutStore } from "@/stores/layout";
 import { useWalletStore } from "@/stores/wallet";
 import Menu from "primevue/menu";
@@ -22,15 +22,26 @@ const toggleMenu = (event: Event) => {
 };
 
 const walletBalance = computed(() => {
-  const direct = Number(wallet.balance?.rlusd_balance);
-  if (Number.isFinite(direct) && direct > 0) return direct.toFixed(2);
+  const total = Number(wallet.aggregateBalance?.total_balance_rlusd);
+  if (Number.isFinite(total)) return total.toFixed(2);
 
-  const issued = Array.isArray(wallet.balance?.issued_balances) ? wallet.balance.issued_balances : [];
-  const fallback = issued
-    .filter((row: any) => String(row?.currency || "").toUpperCase() === "RLUSD")
-    .reduce((sum: number, row: any) => sum + Number(row?.balance || 0), 0);
-  return Number.isFinite(fallback) ? fallback.toFixed(2) : "--";
+  const direct = Number(wallet.balance?.rlusd_balance);
+  if (Number.isFinite(direct)) return direct.toFixed(2);
+  return "--";
 });
+
+onMounted(async () => {
+  if (!wallet.aggregateBalance) {
+    await wallet.fetchAggregateBalance();
+  }
+});
+
+watch(
+  () => wallet.wallets.length,
+  async () => {
+    await wallet.fetchAggregateBalance();
+  },
+);
 </script>
 
 <template>
@@ -74,7 +85,7 @@ const walletBalance = computed(() => {
   align-items: center;
   gap: 1rem;
   padding: 0 1.25rem;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(8px);
   position: sticky;
   top: 0;

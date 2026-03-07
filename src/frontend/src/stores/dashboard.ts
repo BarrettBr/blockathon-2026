@@ -8,12 +8,11 @@ export const useDashboardStore = defineStore("dashboard", {
     error: "",
   }),
   actions: {
-    async loadDashboard(userWalletAddress: string) {
-      if (!userWalletAddress) return;
+    async loadDashboard(_userWalletAddress?: string) {
       this.loading = true;
       this.error = "";
       try {
-        const res = await apiHelper.getDashboard(userWalletAddress);
+        const res = await apiHelper.getAggregateDashboard();
         this.data = res.data.data;
       } catch (error: any) {
         this.error = error?.response?.data?.detail || "Failed to load dashboard";

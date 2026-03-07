@@ -7,7 +7,6 @@ const wallet = useWalletStore();
 const dashboard = useDashboardStore();
 
 const data = computed(() => dashboard.data);
-const selectedAddress = computed(() => wallet.selectedWallet?.address || "");
 const errorText = computed(() => wallet.error || dashboard.error || "");
 const xrpBalance = computed(() => {
   const raw = data.value?.balance_xrp;
@@ -21,21 +20,21 @@ const rlusdBalance = computed(() => {
 });
 
 async function load() {
-  if (!selectedAddress.value) {
+  if (!wallet.wallets.length) {
     dashboard.data = null;
     return;
   }
 
   try {
-    await wallet.fetchSelectedBalance();
-    await dashboard.loadDashboard(selectedAddress.value);
+    await wallet.fetchAggregateBalance();
+    await dashboard.loadDashboard();
   } catch {
     // Store-level errors are surfaced in UI through errorText.
   }
 }
 
 watch(
-  () => selectedAddress.value,
+  () => wallet.wallets.length,
   async () => {
     await load();
   },
@@ -45,9 +44,9 @@ watch(
 
 <template>
   <section class="stack">
-    <div class="panel empty" v-if="!selectedAddress && !dashboard.loading">
-      <h3>No Wallet Connected</h3>
-      <p>Go to <strong>Wallet</strong> and connect/import a wallet seed to load dashboard data.</p>
+    <div class="panel empty" v-if="!wallet.wallets.length && !dashboard.loading">
+      <h3>No Connected Wallets</h3>
+      <p>Go to <strong>Wallet</strong> and connect at least one wallet to load aggregate dashboard data.</p>
     </div>
 
     <div class="panel" v-else-if="dashboard.loading">
@@ -109,7 +108,7 @@ watch(
 .stack { display: grid; gap: 1rem; }
 .cards { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 1rem; }
 .card, .panel {
-  background: rgba(255,255,255,0.9);
+  background: rgba(255,255,255,0.96);
   border: 1px solid #dceaff;
   border-radius: 14px;
   padding: 1rem;

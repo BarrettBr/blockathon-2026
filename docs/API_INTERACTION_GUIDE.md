@@ -107,6 +107,37 @@ Behavior:
 - `GET /history/{user_wallet_address}`
 - `GET /dashboard/{user_wallet_address}`
 
+## Snapshots (Auth Required)
+Snapshots are immutable JSON reports generated from live DB records and stored on Pinata.
+
+### POST `/snapshots`
+```json
+{
+  "title": "March Snapshot",
+  "days": 30
+}
+```
+Optional explicit range:
+```json
+{
+  "title": "Q1 Snapshot",
+  "start_date": "2026-01-01",
+  "end_date": "2026-03-31"
+}
+```
+
+### GET `/snapshots`
+Returns metadata list (DB-backed).
+
+### GET `/snapshots/{id}`
+Returns metadata + full snapshot artifact (fetched from Pinata).
+
+### POST `/snapshots/{id}/ask`
+```json
+{ "question": "How much of my spending is subscriptions vs one-time?" }
+```
+Fetches snapshot artifact then sends snapshot + prompt to Gemini.
+
 ## Status Codes
 - `200` success
 - `400` invalid input/signature/wallet mismatch

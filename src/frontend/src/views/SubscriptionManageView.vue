@@ -199,13 +199,13 @@ watch(() => wallet.selectedWallet?.address, refreshSubscriptions);
 <style scoped>
 .stack { display: grid; gap: 1rem; }
 .panel {
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.96);
   border: 1px solid #dceaff;
   border-radius: 14px;
   padding: 1rem;
 }
 h3 { margin: 0 0 0.7rem; color: #1f467d; }
-label { display: block; color: #597aa6; font-size: 0.86rem; margin-bottom: 0.2rem; }
+label { display: block; color: #47678f; font-size: 0.86rem; margin-bottom: 0.2rem; }
 input {
   width: 100%;
   border: 1px solid #cfe0fb;

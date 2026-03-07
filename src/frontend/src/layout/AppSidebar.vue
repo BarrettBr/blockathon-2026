@@ -66,7 +66,7 @@ const layout = useLayoutStore();
 
 .footer {
   font-size: 0.78rem;
-  color: #6382ab;
+  color: #4b6f9d;
   padding: 0.3rem;
 }
 

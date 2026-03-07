@@ -13,6 +13,7 @@ onMounted(async () => {
   if (wallet.selectedWallet) {
     await wallet.fetchSelectedBalance();
   }
+  await wallet.fetchAggregateBalance();
 });
 </script>
 

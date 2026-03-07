@@ -52,7 +52,7 @@ watch(() => wallet.selectedWallet?.address, load);
 
 <style scoped>
 .panel {
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.96);
   border: 1px solid #dceaff;
   border-radius: 14px;
   padding: 1rem;

@@ -123,10 +123,24 @@ class UserProfile(Base):
     __tablename__ = "user_profiles"
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(128), unique=True, nullable=False, index=True)
-    wallet_address = Column(String(128), nullable=False, index=True)
+    wallet_address = Column(String(128), nullable=False, index=True, default="")
     created_at = Column(DateTime, nullable=False, default=utc_now)
     updated_at = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
     hashed_password = Column(String, nullable=True)
+
+
+class UserWallet(Base):
+    __tablename__ = "user_wallets"
+    __table_args__ = (
+        UniqueConstraint("user_profile_id", "wallet_id", name="uq_user_wallet_link"),
+        UniqueConstraint("user_profile_id", "nickname", name="uq_user_wallet_nickname"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    wallet_id = Column(Integer, ForeignKey("wallets.id"), nullable=False, index=True)
+    nickname = Column(String(64), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
 
 
 class Vendor(Base):
@@ -186,6 +200,27 @@ class HistoryEvent(Base):
     created_at = Column(DateTime, nullable=False, default=utc_now)
 
 
+class Snapshot(Base):
+    __tablename__ = "snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    username = Column(String(128), nullable=False, index=True)
+    wallet_address = Column(String(128), nullable=False, index=True)
+    title = Column(String(256), nullable=False)
+    period_start = Column(DateTime, nullable=False)
+    period_end = Column(DateTime, nullable=False)
+    summary_total_subscription_xrp = Column(Float, nullable=False, default=0.0)
+    summary_total_one_time_xrp = Column(Float, nullable=False, default=0.0)
+    summary_total_spend_xrp = Column(Float, nullable=False, default=0.0)
+    active_subscription_count = Column(Integer, nullable=False, default=0)
+    payment_count = Column(Integer, nullable=False, default=0)
+    subscription_event_count = Column(Integer, nullable=False, default=0)
+    pinata_cid = Column(String(255), nullable=False, index=True)
+    pinata_file_id = Column(String(255), nullable=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _repair_legacy_schema_if_needed()
@@ -218,6 +253,8 @@ def _repair_legacy_schema_if_needed() -> None:
         "user_profiles": {"username", "wallet_address"},
         "webhook_deliveries": {"vendor_id", "event_type", "payload", "status"},
         "subscription_cycles": {"subscription_id", "cycle_index", "period_start", "period_end"},
+        "snapshots": {"user_profile_id", "username", "wallet_address", "pinata_cid"},
+        "user_wallets": {"user_profile_id", "wallet_id", "nickname"},
     }
 
     with engine.begin() as conn:

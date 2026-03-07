@@ -23,6 +23,8 @@ from db import UserProfile
 from schemas import (
     PaymentSendRequest,
     RlusdPaymentSendRequest,
+    SnapshotAskRequest,
+    SnapshotCreateRequest,
     SubscriptionApproveRequest,
     SubscriptionCancelRequest,
     SubscriptionProcessCycleRequest,
@@ -398,6 +400,120 @@ def test_send_rlusd_payment_endpoint(monkeypatch):
     )
     assert resp["data"]["tx_hash"] == "TX-RLUSD-1"
     assert resp["data"]["currency"] == api_module.settings.RLUSD_CURRENCY
+
+
+def test_snapshot_create_list_get_ask(monkeypatch):
+    session = _session()
+    user = db.UserProfile(username="snapuser", wallet_address="rSNAP111111111111111111111111111111")
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    session.add(
+        db.Transaction(
+            tx_hash="TX-SNAP-1",
+            tx_type="payment",
+            from_address=user.wallet_address,
+            to_address="rDEST1111111111111111111111111111",
+            amount_xrp=12.5,
+            status="tesSUCCESS",
+        )
+    )
+    session.add(
+        db.Vendor(
+            vendor_code="snap-vendor",
+            display_name="Snap Vendor",
+            wallet_address="rMERCHANT111111111111111111111111",
+            shared_secret="snap-secret",
+            is_active=True,
+        )
+    )
+    session.commit()
+    vendor = session.query(db.Vendor).first()
+
+    session.add(
+        db.Subscription(
+            vendor_id=vendor.id,
+            user_profile_id=user.id,
+            vendor_tx_id="VTX-SNAP-1",
+            user_wallet_address=user.wallet_address,
+            merchant_wallet_address="rMERCHANT111111111111111111111111",
+            amount_xrp=3.0,
+            interval_days=30,
+            status="active",
+            request_status="approved",
+            contract_signature="sig",
+            contract_hash="hash",
+            contract_alg="HMAC-SHA256",
+            contract_version="v1",
+            start_date=api_module.date.today(),
+            next_payment_date=api_module.date.today(),
+            auto_renew=True,
+        )
+    )
+    session.commit()
+    sub = session.query(db.Subscription).first()
+    session.add(
+        db.SubscriptionCycle(
+            subscription_id=sub.id,
+            cycle_index=1,
+            period_start=api_module.date.today(),
+            period_end=api_module.date.today(),
+            status="locked",
+            escrow_amount_xrp=3.0,
+            escrow_create_tx_hash="ESCROW-SNAP-1",
+        )
+    )
+    session.add(
+        db.HistoryEvent(
+            user_wallet_address=user.wallet_address,
+            event_type="subscription_cycle_escrow_lock",
+            tx_hash="ESCROW-SNAP-1",
+            amount=3.0,
+            currency="XRP",
+            status="tesSUCCESS",
+        )
+    )
+    session.commit()
+
+    monkeypatch.setattr(
+        api_module,
+        "_upload_snapshot_to_pinata",
+        lambda snapshot_json, _title: {"cid": "bafy-snapshot-cid", "file_id": "file-1"},
+    )
+    monkeypatch.setattr(
+        api_module,
+        "_fetch_snapshot_from_pinata",
+        lambda _cid: {"artifact_type": "financial_snapshot", "summary": {"total_spend_xrp": 15.5}},
+    )
+    monkeypatch.setattr(
+        api_module,
+        "_ask_gemini_with_snapshot",
+        lambda _snapshot_json, question: f"Answer for: {question}",
+    )
+
+    create_resp = api_module.create_financial_snapshot(
+        user,
+        SnapshotCreateRequest(title="March Snapshot", days=30),
+        session,
+    )
+    snapshot_id = create_resp["data"]["id"]
+    assert create_resp["data"]["pinata_cid"] == "bafy-snapshot-cid"
+
+    list_resp = api_module.list_financial_snapshots(user, session)
+    assert len(list_resp["data"]) == 1
+    assert list_resp["data"][0]["id"] == snapshot_id
+
+    get_resp = api_module.get_financial_snapshot(snapshot_id, user, session)
+    assert get_resp["data"]["artifact"]["artifact_type"] == "financial_snapshot"
+
+    ask_resp = api_module.ask_financial_snapshot_question(
+        snapshot_id,
+        SnapshotAskRequest(question="How much is recurring?"),
+        user,
+        session,
+    )
+    assert "How much is recurring?" in ask_resp["data"]["answer"]
 
 
 

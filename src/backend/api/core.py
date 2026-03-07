@@ -9,9 +9,9 @@ import hmac
 import secrets
 from typing import Any, Optional
 from urllib import error as urllib_error
+from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
-from handlers.auth import get_current_user
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -40,9 +40,11 @@ from db import (
     SubscriptionCycle,
     Transaction,
     UserProfile,
+    UserWallet,
     Vendor,
     Wallet,
     WebhookDelivery,
+    Snapshot,
     get_db,
 )
 from schemas import (
@@ -50,6 +52,8 @@ from schemas import (
     BootstrapRlusdRequest,
     PaymentSendRequest,
     RlusdPaymentSendRequest,
+    SnapshotAskRequest,
+    SnapshotCreateRequest,
     SpendingGuardSetRequest,
     SubscriptionApproveRequest,
     SubscriptionCancelRequest,
@@ -58,6 +62,7 @@ from schemas import (
     UserProfileRegisterRequest,
     VendorCreateRequest,
     VendorUpdateRequest,
+    WalletConnectRequest,
     WalletImportRequest,
 )
 
@@ -279,6 +284,18 @@ def _save_or_get_wallet(db: Session, address: str, seed: str) -> Wallet:
     return wallet_row
 
 
+# Get all user-wallet link rows joined with wallet rows.
+def _get_user_wallet_links(db: Session, user_id: int) -> list[tuple[UserWallet, Wallet]]:
+    rows = (
+        db.query(UserWallet, Wallet)
+        .join(Wallet, UserWallet.wallet_id == Wallet.id)
+        .filter(UserWallet.user_profile_id == user_id)
+        .order_by(UserWallet.created_at.desc())
+        .all()
+    )
+    return rows
+
+
 # Store dashboard history rows for user-centric feeds.
 def _record_history(
     db: Session,
@@ -302,6 +319,126 @@ def _record_history(
         note=note,
     )
     db.add(row)
+
+
+# Parse optional ISO date/datetime value into UTC datetime.
+def _parse_snapshot_datetime(raw: Optional[str], field_name: str) -> Optional[datetime]:
+    if not raw:
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        if len(text) == 10:
+            parsed_date = date.fromisoformat(text)
+            return datetime.combine(parsed_date, datetime.min.time(), tzinfo=timezone.utc)
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name}, expected ISO date/datetime") from exc
+
+
+# Upload full snapshot artifact JSON to Pinata and return CID + file id.
+def _upload_snapshot_to_pinata(snapshot_json: dict[str, Any], title: str) -> dict[str, Optional[str]]:
+    if not settings.PINATA_JWT.strip():
+        raise HTTPException(status_code=500, detail="PINATA_JWT is not configured")
+
+    payload = {
+        "pinataContent": snapshot_json,
+        "pinataMetadata": {"name": title},
+        "pinataOptions": {"cidVersion": 1},
+    }
+    request_obj = urllib_request.Request(
+        settings.PINATA_UPLOAD_URL,
+        data=_json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {settings.PINATA_JWT.strip()}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(request_obj, timeout=settings.PINATA_TIMEOUT_SECONDS) as response:
+            body = response.read().decode("utf-8")
+            parsed = _json.loads(body) if body else {}
+    except urllib_error.HTTPError as exc:
+        message = exc.read().decode("utf-8") if hasattr(exc, "read") else str(exc)
+        raise HTTPException(status_code=502, detail=f"Pinata upload failed: {message}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Pinata upload failed: {exc}") from exc
+
+    cid = parsed.get("IpfsHash") or parsed.get("cid")
+    if not cid:
+        raise HTTPException(status_code=502, detail="Pinata upload succeeded but no CID returned")
+    return {"cid": cid, "file_id": parsed.get("id")}
+
+
+# Fetch snapshot artifact JSON from Pinata by CID.
+def _fetch_snapshot_from_pinata(cid: str) -> dict[str, Any]:
+    gateway = settings.PINATA_GATEWAY_BASE_URL.rstrip("/")
+    request_obj = urllib_request.Request(
+        f"{gateway}/{urllib_parse.quote(cid)}",
+        headers={"Authorization": f"Bearer {settings.PINATA_JWT.strip()}"} if settings.PINATA_JWT.strip() else {},
+        method="GET",
+    )
+    try:
+        with urllib_request.urlopen(request_obj, timeout=settings.PINATA_TIMEOUT_SECONDS) as response:
+            body = response.read().decode("utf-8")
+            parsed = _json.loads(body)
+    except urllib_error.HTTPError as exc:
+        message = exc.read().decode("utf-8") if hasattr(exc, "read") else str(exc)
+        raise HTTPException(status_code=502, detail=f"Pinata fetch failed: {message}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Pinata fetch failed: {exc}") from exc
+
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=502, detail="Pinata returned invalid snapshot JSON")
+    return parsed
+
+
+# Send question + snapshot artifact to Gemini and return answer text.
+def _ask_gemini_with_snapshot(snapshot_json: dict[str, Any], question: str) -> str:
+    if not settings.GEMINI_API_KEY.strip():
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured")
+    model = settings.GEMINI_MODEL.strip() or "gemini-1.5-flash"
+    base_url = settings.GEMINI_API_BASE_URL.rstrip("/")
+    url = f"{base_url}/models/{model}:generateContent?key={urllib_parse.quote(settings.GEMINI_API_KEY.strip())}"
+
+    prompt = (
+        "You are a financial assistant working only from a fixed snapshot artifact. "
+        "Do not assume data not present in the snapshot. "
+        "Give concise practical guidance and show any simple calculations.\n\n"
+        f"User question:\n{question}\n\n"
+        "Snapshot JSON:\n"
+        f"{_json.dumps(snapshot_json)}"
+    )
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    request_obj = urllib_request.Request(
+        url,
+        data=_json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(request_obj, timeout=30) as response:
+            parsed = _json.loads(response.read().decode("utf-8"))
+    except urllib_error.HTTPError as exc:
+        message = exc.read().decode("utf-8") if hasattr(exc, "read") else str(exc)
+        raise HTTPException(status_code=502, detail=f"Gemini request failed: {message}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Gemini request failed: {exc}") from exc
+
+    candidates = parsed.get("candidates") or []
+    if not candidates:
+        raise HTTPException(status_code=502, detail="Gemini returned no candidates")
+    content = candidates[0].get("content", {})
+    parts = content.get("parts") or []
+    answer = "".join(str(part.get("text", "")) for part in parts).strip()
+    if not answer:
+        raise HTTPException(status_code=502, detail="Gemini returned empty response")
+    return answer
 
 
 # Get month key used for spending guard buckets.
@@ -1044,6 +1181,109 @@ def import_wallet(payload: WalletImportRequest, db: Session = Depends(get_db)) -
     )
 
 
+# Connect a wallet to the current user with a shorthand nickname.
+def connect_user_wallet(payload: WalletConnectRequest, current_user: UserProfile, db: Session) -> dict[str, Any]:
+    wallet = _wallet_from_seed(payload.seed)
+    wallet_row = _save_or_get_wallet(db, wallet.classic_address, payload.seed)
+
+    existing_nickname = (
+        db.query(UserWallet)
+        .filter(UserWallet.user_profile_id == current_user.id)
+        .filter(UserWallet.nickname == payload.nickname)
+        .first()
+    )
+    if existing_nickname and existing_nickname.wallet_id != wallet_row.id:
+        raise HTTPException(status_code=409, detail="Nickname already used for another wallet")
+
+    link = (
+        db.query(UserWallet)
+        .filter(UserWallet.user_profile_id == current_user.id)
+        .filter(UserWallet.wallet_id == wallet_row.id)
+        .first()
+    )
+    if link:
+        link.nickname = payload.nickname
+        db.commit()
+        db.refresh(link)
+    else:
+        link = UserWallet(user_profile_id=current_user.id, wallet_id=wallet_row.id, nickname=payload.nickname)
+        db.add(link)
+        db.commit()
+        db.refresh(link)
+
+    if not current_user.wallet_address:
+        current_user.wallet_address = wallet_row.address
+        db.commit()
+
+    return _success(
+        "Wallet connected",
+        {
+            "link_id": link.id,
+            "nickname": link.nickname,
+            "wallet_id": wallet_row.id,
+            "address": wallet_row.address,
+            "seed": wallet_row.seed,
+            "network": wallet_row.network,
+            "created_at": link.created_at.isoformat(),
+        },
+    )
+
+
+# List connected wallets for current user with pagination.
+def list_connected_wallets(current_user: UserProfile, db: Session, page: int = 1, page_size: int = 10) -> dict[str, Any]:
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 100)
+    query = (
+        db.query(UserWallet, Wallet)
+        .join(Wallet, UserWallet.wallet_id == Wallet.id)
+        .filter(UserWallet.user_profile_id == current_user.id)
+    )
+    total = query.count()
+    rows = (
+        query.order_by(UserWallet.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    data = [
+        {
+            "link_id": link.id,
+            "nickname": link.nickname,
+            "wallet_id": wallet_row.id,
+            "address": wallet_row.address,
+            "seed": wallet_row.seed,
+            "network": wallet_row.network,
+            "created_at": link.created_at.isoformat(),
+        }
+        for link, wallet_row in rows
+    ]
+    return _success(
+        "Connected wallets",
+        {
+            "items": data,
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "pages": (total + page_size - 1) // page_size,
+        },
+    )
+
+
+# Remove a connected wallet link for current user only.
+def delete_connected_wallet(link_id: int, current_user: UserProfile, db: Session) -> dict[str, Any]:
+    link = (
+        db.query(UserWallet)
+        .filter(UserWallet.id == link_id)
+        .filter(UserWallet.user_profile_id == current_user.id)
+        .first()
+    )
+    if not link:
+        raise HTTPException(status_code=404, detail="Connected wallet link not found")
+    db.delete(link)
+    db.commit()
+    return _success("Connected wallet removed", {"link_id": link_id})
+
+
 # Bootstrap RLUSD readiness: trust line + mint for an imported wallet.
 @router.post("/wallets/bootstrap-rlusd", response_model=ApiResponse)
 def bootstrap_rlusd_wallet(
@@ -1138,6 +1378,38 @@ def get_wallet_balance(address: str) -> dict[str, Any]:
             "rlusd_ready": bool(settings.RLUSD_ISSUER),
             "issued_balances": _get_issued_balances(address),
             "ledger_index": result.get("ledger_index"),
+        },
+    )
+
+
+# Aggregate XRP and RLUSD balances across all connected wallets for current user.
+def get_aggregate_wallet_balance(current_user: UserProfile, db: Session) -> dict[str, Any]:
+    links = _get_user_wallet_links(db, current_user.id)
+    wallets = []
+    total_xrp = 0.0
+    total_rlusd = 0.0
+    for link, wallet_row in links:
+        balance = get_wallet_balance(wallet_row.address)["data"]
+        xrp = float(balance.get("balance_xrp") or 0.0)
+        rlusd = float(balance.get("rlusd_balance") or 0.0)
+        total_xrp += xrp
+        total_rlusd += rlusd
+        wallets.append(
+            {
+                "link_id": link.id,
+                "nickname": link.nickname,
+                "address": wallet_row.address,
+                "balance_xrp": xrp,
+                "rlusd_balance": rlusd,
+            }
+        )
+    return _success(
+        "Aggregate wallet balance",
+        {
+            "wallet_count": len(wallets),
+            "total_balance_xrp": round(total_xrp, 6),
+            "total_balance_rlusd": round(total_rlusd, 6),
+            "wallets": wallets,
         },
     )
 
@@ -1778,6 +2050,248 @@ def get_subscription(subscription_id: int, db: Session) -> dict[str, Any]:
     return _success("Subscription details", _subscription_to_dict(row))
 
 
+# Build immutable financial snapshot artifact from current live data and store on Pinata.
+def create_financial_snapshot(
+    current_user: UserProfile,
+    payload: SnapshotCreateRequest,
+    db: Session,
+) -> dict[str, Any]:
+    if not current_user.wallet_address:
+        raise HTTPException(status_code=400, detail="Current user has no wallet_address configured")
+
+    period_end = _parse_snapshot_datetime(payload.end_date, "end_date") or datetime.now(timezone.utc)
+    period_start = _parse_snapshot_datetime(payload.start_date, "start_date")
+    if period_start is None:
+        days = payload.days if payload.days is not None else settings.SNAPSHOT_DEFAULT_DAYS
+        period_start = period_end - timedelta(days=days)
+    if period_start > period_end:
+        raise HTTPException(status_code=400, detail="start_date must be before end_date")
+
+    wallet_address = current_user.wallet_address
+    title = (payload.title or "").strip() or f"Snapshot {period_start.date().isoformat()} to {period_end.date().isoformat()}"
+
+    payment_rows = (
+        db.query(Transaction)
+        .filter(Transaction.from_address == wallet_address)
+        .filter(Transaction.created_at >= period_start)
+        .filter(Transaction.created_at <= period_end)
+        .order_by(Transaction.created_at.desc())
+        .all()
+    )
+    subscription_rows = (
+        db.query(Subscription)
+        .filter(Subscription.user_wallet_address == wallet_address)
+        .order_by(Subscription.created_at.desc())
+        .all()
+    )
+    sub_ids = [row.id for row in subscription_rows]
+    cycle_rows = []
+    if sub_ids:
+        cycle_rows = (
+            db.query(SubscriptionCycle)
+            .filter(SubscriptionCycle.subscription_id.in_(sub_ids))
+            .filter(SubscriptionCycle.created_at >= period_start)
+            .filter(SubscriptionCycle.created_at <= period_end)
+            .order_by(SubscriptionCycle.created_at.desc())
+            .all()
+        )
+    history_rows = (
+        db.query(HistoryEvent)
+        .filter(HistoryEvent.user_wallet_address == wallet_address)
+        .filter(HistoryEvent.created_at >= period_start)
+        .filter(HistoryEvent.created_at <= period_end)
+        .order_by(HistoryEvent.created_at.desc())
+        .all()
+    )
+
+    one_time_payment_spend_xrp = float(
+        sum(
+            row.amount_xrp or 0.0
+            for row in payment_rows
+            if row.tx_type == "payment"
+        )
+    )
+    recurring_subscription_spend_xrp = float(sum(row.escrow_amount_xrp or 0.0 for row in cycle_rows))
+    total_spend_xrp = float(one_time_payment_spend_xrp + recurring_subscription_spend_xrp)
+    active_subscription_count = sum(1 for row in subscription_rows if row.status in {"active", "non_renewing"})
+
+    artifact = {
+        "artifact_type": "financial_snapshot",
+        "artifact_version": "v1",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "owner": {
+            "username": current_user.username,
+            "wallet_address": wallet_address,
+        },
+        "title": title,
+        "period": {
+            "start": period_start.isoformat(),
+            "end": period_end.isoformat(),
+        },
+        "summary": {
+            "one_time_payment_spend_xrp": one_time_payment_spend_xrp,
+            "recurring_subscription_spend_xrp": recurring_subscription_spend_xrp,
+            "total_spend_xrp": total_spend_xrp,
+            "active_subscription_count": active_subscription_count,
+            "payment_count": len(payment_rows),
+            "subscription_event_count": len(cycle_rows),
+        },
+        "payments": [
+            {
+                "tx_hash": row.tx_hash,
+                "tx_type": row.tx_type,
+                "from_address": row.from_address,
+                "to_address": row.to_address,
+                "amount_xrp": row.amount_xrp,
+                "status": row.status,
+                "created_at": row.created_at.isoformat(),
+            }
+            for row in payment_rows
+        ],
+        "subscriptions": [_subscription_to_dict(row) for row in subscription_rows],
+        "subscription_cycles": [_cycle_to_dict(row) for row in cycle_rows],
+        "history": [
+            {
+                "event_type": row.event_type,
+                "tx_hash": row.tx_hash,
+                "counterparty_address": row.counterparty_address,
+                "amount": row.amount,
+                "currency": row.currency,
+                "status": row.status,
+                "note": row.note,
+                "created_at": row.created_at.isoformat(),
+            }
+            for row in history_rows
+        ],
+    }
+
+    pinata = _upload_snapshot_to_pinata(artifact, title)
+    row = Snapshot(
+        user_profile_id=current_user.id,
+        username=current_user.username,
+        wallet_address=wallet_address,
+        title=title,
+        period_start=period_start,
+        period_end=period_end,
+        summary_total_subscription_xrp=recurring_subscription_spend_xrp,
+        summary_total_one_time_xrp=one_time_payment_spend_xrp,
+        summary_total_spend_xrp=total_spend_xrp,
+        active_subscription_count=active_subscription_count,
+        payment_count=len(payment_rows),
+        subscription_event_count=len(cycle_rows),
+        pinata_cid=pinata["cid"] or "",
+        pinata_file_id=pinata["file_id"],
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _success(
+        "Snapshot created",
+        {
+            "id": row.id,
+            "title": row.title,
+            "created_at": row.created_at.isoformat(),
+            "period_start": row.period_start.isoformat(),
+            "period_end": row.period_end.isoformat(),
+            "summary_total_subscription_xrp": row.summary_total_subscription_xrp,
+            "summary_total_one_time_xrp": row.summary_total_one_time_xrp,
+            "summary_total_spend_xrp": row.summary_total_spend_xrp,
+            "active_subscription_count": row.active_subscription_count,
+            "payment_count": row.payment_count,
+            "subscription_event_count": row.subscription_event_count,
+            "pinata_cid": row.pinata_cid,
+        },
+    )
+
+
+# List snapshot metadata for current user (DB-only for fast list rendering).
+def list_financial_snapshots(current_user: UserProfile, db: Session) -> dict[str, Any]:
+    rows = (
+        db.query(Snapshot)
+        .filter(Snapshot.user_profile_id == current_user.id)
+        .order_by(Snapshot.created_at.desc())
+        .all()
+    )
+    return _success(
+        "Snapshot list",
+        [
+            {
+                "id": row.id,
+                "title": row.title,
+                "created_at": row.created_at.isoformat(),
+                "period_start": row.period_start.isoformat(),
+                "period_end": row.period_end.isoformat(),
+                "summary_total_subscription_xrp": row.summary_total_subscription_xrp,
+                "summary_total_one_time_xrp": row.summary_total_one_time_xrp,
+                "summary_total_spend_xrp": row.summary_total_spend_xrp,
+                "active_subscription_count": row.active_subscription_count,
+                "payment_count": row.payment_count,
+                "subscription_event_count": row.subscription_event_count,
+                "pinata_cid": row.pinata_cid,
+            }
+            for row in rows
+        ],
+    )
+
+
+# Fetch full immutable snapshot artifact from Pinata.
+def get_financial_snapshot(snapshot_id: int, current_user: UserProfile, db: Session) -> dict[str, Any]:
+    row = (
+        db.query(Snapshot)
+        .filter(Snapshot.id == snapshot_id)
+        .filter(Snapshot.user_profile_id == current_user.id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    artifact = _fetch_snapshot_from_pinata(row.pinata_cid)
+    return _success(
+        "Snapshot details",
+        {
+            "id": row.id,
+            "title": row.title,
+            "created_at": row.created_at.isoformat(),
+            "period_start": row.period_start.isoformat(),
+            "period_end": row.period_end.isoformat(),
+            "summary_total_subscription_xrp": row.summary_total_subscription_xrp,
+            "summary_total_one_time_xrp": row.summary_total_one_time_xrp,
+            "summary_total_spend_xrp": row.summary_total_spend_xrp,
+            "active_subscription_count": row.active_subscription_count,
+            "payment_count": row.payment_count,
+            "subscription_event_count": row.subscription_event_count,
+            "pinata_cid": row.pinata_cid,
+            "artifact": artifact,
+        },
+    )
+
+
+# Ask Gemini a question grounded only on a fixed snapshot artifact.
+def ask_financial_snapshot_question(
+    snapshot_id: int,
+    payload: SnapshotAskRequest,
+    current_user: UserProfile,
+    db: Session,
+) -> dict[str, Any]:
+    row = (
+        db.query(Snapshot)
+        .filter(Snapshot.id == snapshot_id)
+        .filter(Snapshot.user_profile_id == current_user.id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    artifact = _fetch_snapshot_from_pinata(row.pinata_cid)
+    answer = _ask_gemini_with_snapshot(artifact, payload.question)
+    return _success(
+        "Snapshot question answered",
+        {
+            "snapshot_id": row.id,
+            "question": payload.question,
+            "answer": answer,
+        },
+    )
+
+
 # List billing cycles for a subscription.
 def list_subscription_cycles(subscription_id: int, db: Session) -> dict[str, Any]:
     subscription = db.query(Subscription).filter(Subscription.id == subscription_id).first()
@@ -2034,5 +2548,87 @@ def get_dashboard(user_wallet_address: str, db: Session = Depends(get_db)) -> di
                 }
                 for row in activity_rows
             ],
+        },
+    )
+
+
+# Aggregate dashboard across all connected wallets for current user.
+def get_dashboard_aggregate(current_user: UserProfile, db: Session) -> dict[str, Any]:
+    links = _get_user_wallet_links(db, current_user.id)
+    if not links:
+        return _success(
+            "Aggregate dashboard",
+            {
+                "wallet_count": 0,
+                "wallets": [],
+                "balance_xrp": 0.0,
+                "balance_rlusd": 0.0,
+                "locked_in_escrow_xrp": 0.0,
+                "monthly_guard": {"currency": "RLUSD", "limit": 0.0, "spent": 0.0, "remaining": 0.0},
+                "this_month": {"released": 0.0, "locked": 0.0},
+                "upcoming_release": [],
+                "recent_activity": [],
+            },
+        )
+
+    wallet_entries = []
+    total_balance_xrp = 0.0
+    total_balance_rlusd = 0.0
+    total_locked = 0.0
+    total_guard_limit = 0.0
+    total_guard_spent = 0.0
+    total_guard_remaining = 0.0
+    total_released = 0.0
+    total_locked_month = 0.0
+    upcoming_release = []
+    recent_activity = []
+
+    for link, wallet_row in links:
+        data = get_dashboard(wallet_row.address, db)["data"]
+        wallet_entries.append({"link_id": link.id, "nickname": link.nickname, "address": wallet_row.address})
+        total_balance_xrp += float(data.get("balance_xrp") or 0.0)
+        total_balance_rlusd += float(data.get("balance_rlusd") or 0.0)
+        total_locked += float(data.get("locked_in_escrow_xrp") or 0.0)
+        guard = data.get("monthly_guard") or {}
+        total_guard_limit += float(guard.get("limit") or 0.0)
+        total_guard_spent += float(guard.get("spent") or 0.0)
+        total_guard_remaining += float(guard.get("remaining") or 0.0)
+        month = data.get("this_month") or {}
+        total_released += float(month.get("released") or 0.0)
+        total_locked_month += float(month.get("locked") or 0.0)
+        for row in data.get("upcoming_release") or []:
+            enriched = dict(row)
+            enriched["wallet_address"] = wallet_row.address
+            enriched["wallet_nickname"] = link.nickname
+            upcoming_release.append(enriched)
+        for row in data.get("recent_activity") or []:
+            enriched = dict(row)
+            enriched["wallet_address"] = wallet_row.address
+            enriched["wallet_nickname"] = link.nickname
+            recent_activity.append(enriched)
+
+    upcoming_release.sort(key=lambda r: r.get("next_payment_date") or "")
+    recent_activity.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+
+    return _success(
+        "Aggregate dashboard",
+        {
+            "wallet_count": len(wallet_entries),
+            "wallets": wallet_entries,
+            "balance_xrp": round(total_balance_xrp, 6),
+            "balance_rlusd": round(total_balance_rlusd, 6),
+            "locked_in_escrow_xrp": round(total_locked, 6),
+            "monthly_guard": {
+                "currency": "RLUSD",
+                "limit": round(total_guard_limit, 6),
+                "spent": round(total_guard_spent, 6),
+                "remaining": round(total_guard_remaining, 6),
+            },
+            "this_month": {
+                "released": round(total_released, 6),
+                "locked": round(total_locked_month, 6),
+            },
+            "upcoming_release": upcoming_release[:20],
+            "recent_activity": recent_activity[:50],
         },
     )

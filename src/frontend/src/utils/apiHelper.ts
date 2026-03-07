@@ -8,6 +8,15 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 export interface ApiEnvelope<T> {
   message: string;
   data: T;
@@ -17,12 +26,18 @@ export const apiHelper = {
   health: () => api.get<ApiEnvelope<any>>("/health"),
 
   importWallet: (seed: string) => api.post<ApiEnvelope<any>>("/wallets/import", { seed }),
+  connectWallet: (payload: { seed: string; nickname: string }) =>
+    api.post<ApiEnvelope<any>>("/wallets/connect", payload),
   bootstrapRlusdWallet: (payload: { user_seed: string; mint_amount: number }) =>
     api.post<ApiEnvelope<any>>("/wallets/bootstrap-rlusd", payload),
   createWallet: () => api.post<ApiEnvelope<any>>("/wallets/create"),
-  listWallets: () => api.get<ApiEnvelope<any[]>>("/wallets"),
+  listWallets: (page = 1, pageSize = 10) =>
+    api.get<ApiEnvelope<any>>(`/wallets?page=${page}&page_size=${pageSize}`),
+  deleteConnectedWallet: (linkId: number) =>
+    api.delete<ApiEnvelope<any>>(`/wallets/connected/${linkId}`),
   getWalletBalance: (address: string) =>
     api.get<ApiEnvelope<any>>(`/wallets/${address}/balance`),
+  getAggregateBalance: () => api.get<ApiEnvelope<any>>("/wallets/aggregate/balance"),
 
   sendXrpPayment: (payload: {
     sender_seed: string;
@@ -128,10 +143,26 @@ export const apiHelper = {
 	getHistory: (userWalletAddress: string, limit = 50) =>
 	api.get<ApiEnvelope<any[]>>(`/history/${userWalletAddress}?limit=${limit}`),
 
-		getDashboard: (userWalletAddress: string) =>
+  getDashboard: (userWalletAddress: string) =>
 	api.get<ApiEnvelope<any>>(`/dashboard/${userWalletAddress}`),
+  getAggregateDashboard: () => api.get<ApiEnvelope<any>>("/dashboard/aggregate"),
+
+  createSnapshot: (payload: {
+    title?: string;
+    days?: number;
+    start_date?: string;
+    end_date?: string;
+  }) => api.post<ApiEnvelope<any>>("/snapshots", payload),
+
+  listSnapshots: () => api.get<ApiEnvelope<any[]>>("/snapshots"),
+
+  getSnapshot: (snapshotId: number) => api.get<ApiEnvelope<any>>(`/snapshots/${snapshotId}`),
+
+  askSnapshot: (snapshotId: number, question: string) =>
+    api.post<ApiEnvelope<any>>(`/snapshots/${snapshotId}/ask`, { question }),
+
 	// Add to the apiHelper object
-	register: (payload: { username: string; password: string; wallet_address: string }) =>
+	register: (payload: { username: string; password: string }) =>
 	api.post<ApiEnvelope<any>>("/auth/register", null, { params: payload }),
 
 	login: (username: string, password: string) => {

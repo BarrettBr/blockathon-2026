@@ -57,5 +57,15 @@ class Settings:
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
+    PINATA_JWT: str = os.getenv("PINATA_JWT", "")
+    PINATA_UPLOAD_URL: str = os.getenv("PINATA_UPLOAD_URL", "https://api.pinata.cloud/pinning/pinJSONToIPFS")
+    PINATA_GATEWAY_BASE_URL: str = os.getenv("PINATA_GATEWAY_BASE_URL", "https://gateway.pinata.cloud/ipfs")
+    PINATA_TIMEOUT_SECONDS: int = int(os.getenv("PINATA_TIMEOUT_SECONDS", "20"))
+    SNAPSHOT_DEFAULT_DAYS: int = int(os.getenv("SNAPSHOT_DEFAULT_DAYS", "30"))
+
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    GEMINI_API_BASE_URL: str = os.getenv("GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
+
 
 settings = Settings()

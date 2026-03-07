@@ -7,6 +7,7 @@ import WalletView from "@/views/WalletView.vue";
 import SubscriptionVendorCreationView from "@/views/SubscriptionVendorCreationView.vue";
 import SubscriptionManageView from "@/views/SubscriptionManageView.vue";
 import SubscriptionHistoryView from "@/views/SubscriptionHistoryView.vue";
+import SnapshotView from "@/views/SnapshotView.vue";
 import SpendingGuardView from "@/views/SpendingGuardView.vue";
 import HistoryView from "@/views/HistoryView.vue";
 import LoginView from "@/views/auth/Login.vue";
@@ -32,6 +33,7 @@ const router = createRouter({
         { path: "subscriptions/vendor-creation", name: "subscription-vendor-creation", component: SubscriptionVendorCreationView, },
         { path: "subscriptions/manage", name: "subscription-manage", component: SubscriptionManageView, },
         { path: "subscriptions/history", name: "subscription-history", component: SubscriptionHistoryView, },
+        { path: "snapshots", name: "snapshots", component: SnapshotView },
         { path: "spending-guard", name: "spending-guard", component: SpendingGuardView },
         { path: "history", name: "history", component: HistoryView },
       ],

@@ -57,13 +57,13 @@ def get_current_user(
 
 
 @router.post("/auth/register")
-def register(username: str, password: str, wallet_address: str, db: Session = Depends(get_db)):
+def register(username: str, password: str, wallet_address: str = "", db: Session = Depends(get_db)):
     if db.query(UserProfile).filter(UserProfile.username == username).first():
         raise HTTPException(status_code=400, detail="Username already registered")
     user = UserProfile(
         username=username,
         hashed_password=hash_password(password),
-        wallet_address=wallet_address,
+        wallet_address=wallet_address or "",
     )
     db.add(user)
     db.commit()
