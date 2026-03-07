@@ -11,6 +11,7 @@ from schemas import (
     ApiResponse,
     SubscriptionApproveRequest,
     SubscriptionCancelRequest,
+    SubscriptionProcessCycleRequest,
     SubscriptionRequestCreateRequest,
     UserProfileRegisterRequest,
     VendorCreateRequest,
@@ -67,6 +68,20 @@ def approve_subscription_request(
     db: Session = Depends(get_db),
 ):
     return core.approve_subscription_request(subscription_id, payload, db)
+
+
+@router.get("/subscriptions/{subscription_id}/cycles", response_model=ApiResponse)
+def list_subscription_cycles(subscription_id: int, db: Session = Depends(get_db)):
+    return core.list_subscription_cycles(subscription_id, db)
+
+
+@router.post("/subscriptions/{subscription_id}/cycles/process", response_model=ApiResponse)
+def process_subscription_cycle(
+    subscription_id: int,
+    payload: SubscriptionProcessCycleRequest,
+    db: Session = Depends(get_db),
+):
+    return core.process_subscription_cycle(subscription_id, payload, db)
 
 
 @router.get("/subscriptions/{subscription_id}", response_model=ApiResponse)

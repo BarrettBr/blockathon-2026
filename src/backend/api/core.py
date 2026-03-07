@@ -36,6 +36,7 @@ from db import (
     HistoryEvent,
     SpendingGuard,
     Subscription,
+    SubscriptionCycle,
     Transaction,
     UserProfile,
     Vendor,
@@ -51,6 +52,7 @@ from schemas import (
     SpendingGuardSetRequest,
     SubscriptionApproveRequest,
     SubscriptionCancelRequest,
+    SubscriptionProcessCycleRequest,
     SubscriptionRequestCreateRequest,
     UserProfileRegisterRequest,
     VendorCreateRequest,
@@ -650,7 +652,7 @@ def _lock_subscription_escrow(db: Session, row: Subscription, user_seed: str) ->
     finish_after = datetime_to_ripple_time(now)
     cancel_after = datetime_to_ripple_time(now + timedelta(days=row.interval_days))
 
-    memo = Memo(memo_data=_hex_text(f"SUBSCRIPTION_ESCROW_LOCK:{row.id}:{row.terms_hash}"))
+    memo = Memo(memo_data=_hex_text(f"SUBSCRIPTION_ESCROW_LOCK:{row.id}:{row.contract_hash}"))
     tx = EscrowCreate(
         account=row.user_wallet_address,
         destination=row.merchant_wallet_address,
@@ -714,7 +716,7 @@ def _finish_subscription_escrow(db: Session, row: Subscription, merchant_seed: s
         raise HTTPException(status_code=400, detail="merchant_seed does not match merchant wallet")
 
     client = _get_xrpl_client()
-    memo = Memo(memo_data=_hex_text(f"SUBSCRIPTION_ESCROW_RELEASE:{row.id}:{row.terms_hash}"))
+    memo = Memo(memo_data=_hex_text(f"SUBSCRIPTION_ESCROW_RELEASE:{row.id}:{row.contract_hash}"))
     tx = EscrowFinish(
         account=row.merchant_wallet_address,
         owner=row.user_wallet_address,
@@ -816,6 +818,110 @@ def _cancel_subscription_escrow(db: Session, row: Subscription, user_seed: str) 
     return {"tx_hash": tx_hash, "status": tx_status}
 
 
+# Convert cycle ORM row into API response shape.
+def _cycle_to_dict(row: SubscriptionCycle) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "subscription_id": row.subscription_id,
+        "cycle_index": row.cycle_index,
+        "period_start": row.period_start.isoformat(),
+        "period_end": row.period_end.isoformat(),
+        "status": row.status,
+        "escrow_amount_xrp": row.escrow_amount_xrp,
+        "escrow_offer_sequence": row.escrow_offer_sequence,
+        "escrow_create_tx_hash": row.escrow_create_tx_hash,
+        "escrow_finish_tx_hash": row.escrow_finish_tx_hash,
+        "escrow_cancel_tx_hash": row.escrow_cancel_tx_hash,
+        "escrow_cancel_after": row.escrow_cancel_after,
+        "created_at": row.created_at.isoformat(),
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+# Create an escrow-backed billing cycle and persist both cycle + subscription state.
+def _create_subscription_cycle_with_escrow(
+    db: Session,
+    subscription: Subscription,
+    user_seed: str,
+    cycle_index: int,
+    period_start: date,
+    period_end: date,
+) -> SubscriptionCycle:
+    client = _get_xrpl_client()
+    user_wallet = _wallet_from_seed(user_seed)
+    if user_wallet.classic_address != subscription.user_wallet_address:
+        raise HTTPException(status_code=400, detail="Provided seed does not match subscription user wallet")
+
+    finish_after_dt = datetime.combine(period_end, datetime.min.time(), tzinfo=timezone.utc)
+    cancel_after_dt = finish_after_dt + timedelta(days=max(subscription.interval_days, 1))
+
+    tx = EscrowCreate(
+        account=subscription.user_wallet_address,
+        destination=subscription.merchant_wallet_address,
+        amount=_xrp_to_drops(subscription.amount_xrp),
+        finish_after=datetime_to_ripple_time(finish_after_dt),
+        cancel_after=datetime_to_ripple_time(cancel_after_dt),
+        memos=[Memo(memo_data=_hex_text(f"CYCLE_ESCROW:{subscription.id}:{cycle_index}:{subscription.contract_hash}"))],
+    )
+
+    try:
+        response = submit_and_wait(tx, client, user_wallet)
+        result = response.result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Cycle escrow lock failed: {exc}") from exc
+
+    tx_hash = result.get("hash") or result.get("tx_json", {}).get("hash")
+    tx_status = result.get("meta", {}).get("TransactionResult") or "unknown"
+    offer_sequence = result.get("tx_json", {}).get("Sequence")
+
+    cycle_row = SubscriptionCycle(
+        subscription_id=subscription.id,
+        cycle_index=cycle_index,
+        period_start=period_start,
+        period_end=period_end,
+        status="locked",
+        escrow_amount_xrp=subscription.amount_xrp,
+        escrow_offer_sequence=offer_sequence,
+        escrow_create_tx_hash=tx_hash,
+        escrow_cancel_after=datetime_to_ripple_time(cancel_after_dt),
+    )
+    db.add(cycle_row)
+
+    subscription.escrow_amount_xrp = subscription.amount_xrp
+    subscription.escrow_offer_sequence = offer_sequence
+    subscription.escrow_create_tx_hash = tx_hash
+    subscription.escrow_status = "locked"
+    subscription.escrow_cancel_after = datetime_to_ripple_time(cancel_after_dt)
+    subscription.last_tx_hash = tx_hash
+    subscription.updated_at = datetime.now(timezone.utc)
+
+    db.add(
+        Transaction(
+            tx_hash=tx_hash,
+            tx_type="subscription_cycle_escrow_lock",
+            from_address=subscription.user_wallet_address,
+            to_address=subscription.merchant_wallet_address,
+            amount_xrp=subscription.amount_xrp,
+            status=tx_status,
+        )
+    )
+    _record_history(
+        db,
+        user_wallet_address=subscription.user_wallet_address,
+        event_type="subscription_cycle_escrow_lock",
+        tx_hash=tx_hash,
+        counterparty_address=subscription.merchant_wallet_address,
+        amount=subscription.amount_xrp,
+        currency="XRP",
+        status=tx_status,
+        note=f"Subscription {subscription.id} cycle {cycle_index} escrow created",
+    )
+    db.commit()
+    db.refresh(cycle_row)
+    db.refresh(subscription)
+    return cycle_row
+
+
 # Convert subscription ORM row to API-friendly response object.
 def _subscription_to_dict(row: Subscription) -> dict[str, Any]:
     return {
@@ -837,6 +943,7 @@ def _subscription_to_dict(row: Subscription) -> dict[str, Any]:
         "start_date": row.start_date.isoformat(),
         "next_payment_date": row.next_payment_date.isoformat(),
         "last_tx_hash": row.last_tx_hash,
+        "auto_renew": bool(row.auto_renew),
         "use_escrow": bool(row.use_escrow),
         "escrow_amount_xrp": row.escrow_amount_xrp,
         "escrow_offer_sequence": row.escrow_offer_sequence,
@@ -1427,6 +1534,7 @@ def create_subscription_request(
         contract_version="v1",
         start_date=today,
         next_payment_date=today,
+        auto_renew=True,
         use_escrow=1,
         escrow_amount_xrp=payload.amount_xrp,
         escrow_status="not_started",
@@ -1518,13 +1626,22 @@ def approve_subscription_request(
     if expected_hash != row.contract_hash:
         raise HTTPException(status_code=400, detail="Contract hash mismatch")
 
-    escrow_result = _lock_subscription_escrow(db, row, payload.user_seed)
+    first_cycle_start = row.start_date
+    first_cycle_end = first_cycle_start + timedelta(days=row.interval_days)
+    cycle_row = _create_subscription_cycle_with_escrow(
+        db=db,
+        subscription=row,
+        user_seed=payload.user_seed,
+        cycle_index=1,
+        period_start=first_cycle_start,
+        period_end=first_cycle_end,
+    )
 
     row.status = "active"
     row.request_status = "approved"
     row.approved_at = datetime.now(timezone.utc)
     row.approved_by_username = payload.username
-    row.last_tx_hash = escrow_result.get("tx_hash")
+    row.next_payment_date = first_cycle_end
     row.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(row)
@@ -1539,7 +1656,7 @@ def approve_subscription_request(
             "contract_hash": row.contract_hash,
             "request_status": row.request_status,
             "status": row.status,
-            "escrow_create_tx_hash": row.escrow_create_tx_hash,
+            "escrow_create_tx_hash": cycle_row.escrow_create_tx_hash,
             "approved_at": row.approved_at.isoformat() if row.approved_at else None,
         },
     )
@@ -1552,6 +1669,8 @@ def approve_subscription_request(
             "vendor_tx_id": row.vendor_tx_id,
             "contract_hash": row.contract_hash,
             "escrow_create_tx_hash": row.escrow_create_tx_hash,
+            "cycle_id": cycle_row.id,
+            "cycle_index": cycle_row.cycle_index,
             "request_status": row.request_status,
             "status": row.status,
         },
@@ -1576,18 +1695,18 @@ def cancel_subscription_request(
     row = db.query(Subscription).filter(Subscription.id == subscription_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="Subscription not found")
-    if row.request_status == "cancelled":
+    if row.status == "cancelled":
         return _success(
             "Subscription already cancelled",
             {
                 "id": row.id,
                 "status": row.status,
                 "request_status": row.request_status,
+                "auto_renew": bool(row.auto_renew),
             },
         )
 
     authorized = False
-    user_seed_for_escrow_cancel: Optional[str] = None
     vendor_secret = request.headers.get(settings.VENDOR_SHARED_SECRET_HEADER, "").strip()
     vendor: Optional[Vendor] = None
     if vendor_secret:
@@ -1600,18 +1719,17 @@ def cancel_subscription_request(
         user_wallet = _wallet_from_seed(payload.user_seed)
         if profile and profile.username == payload.username and user_wallet.classic_address == row.user_wallet_address:
             authorized = True
-            user_seed_for_escrow_cancel = payload.user_seed
 
     if not authorized:
         raise HTTPException(status_code=401, detail="Not authorized to cancel this subscription")
 
-    if row.escrow_status == "locked":
-        if not user_seed_for_escrow_cancel:
-            raise HTTPException(status_code=400, detail="user_seed is required to cancel locked escrow")
-        _cancel_subscription_escrow(db, row, user_seed_for_escrow_cancel)
-
-    row.status = "cancelled"
-    row.request_status = "cancelled"
+    # Pending requests are fully cancelled. Active subscriptions are made non-renewing.
+    if row.request_status == "pending":
+        row.status = "cancelled"
+        row.request_status = "cancelled"
+    else:
+        row.auto_renew = False
+        row.status = "non_renewing"
     row.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(row)
@@ -1629,14 +1747,16 @@ def cancel_subscription_request(
                 "contract_hash": row.contract_hash,
                 "request_status": row.request_status,
                 "status": row.status,
+                "auto_renew": bool(row.auto_renew),
             },
         )
     return _success(
-        "Subscription cancelled",
+        "Subscription updated",
         {
             "id": row.id,
             "status": row.status,
             "request_status": row.request_status,
+            "auto_renew": bool(row.auto_renew),
             "contract_hash": row.contract_hash,
             "vendor_tx_id": row.vendor_tx_id,
         },
@@ -1655,6 +1775,96 @@ def get_subscription(subscription_id: int, db: Session) -> dict[str, Any]:
     if not row:
         raise HTTPException(status_code=404, detail="Subscription not found")
     return _success("Subscription details", _subscription_to_dict(row))
+
+
+# List billing cycles for a subscription.
+def list_subscription_cycles(subscription_id: int, db: Session) -> dict[str, Any]:
+    subscription = db.query(Subscription).filter(Subscription.id == subscription_id).first()
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    rows = (
+        db.query(SubscriptionCycle)
+        .filter(SubscriptionCycle.subscription_id == subscription_id)
+        .order_by(SubscriptionCycle.cycle_index.desc())
+        .all()
+    )
+    return _success("Subscription cycles", [_cycle_to_dict(row) for row in rows])
+
+
+# Create the next billing-cycle escrow for an active auto-renewing subscription.
+def process_subscription_cycle(
+    subscription_id: int,
+    payload: SubscriptionProcessCycleRequest,
+    db: Session,
+) -> dict[str, Any]:
+    subscription = db.query(Subscription).filter(Subscription.id == subscription_id).first()
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    if subscription.request_status != "approved":
+        raise HTTPException(status_code=409, detail="Subscription is not approved")
+    if not subscription.auto_renew:
+        raise HTTPException(status_code=409, detail="Subscription is non-renewing; no future cycles can be created")
+
+    profile = db.query(UserProfile).filter(UserProfile.id == subscription.user_profile_id).first()
+    if not profile or profile.username != payload.username:
+        raise HTTPException(status_code=400, detail="Username does not match subscription")
+    user_wallet = _wallet_from_seed(payload.user_seed)
+    if user_wallet.classic_address != subscription.user_wallet_address:
+        raise HTTPException(status_code=400, detail="Provided seed does not match subscribed user wallet")
+
+    latest_cycle = (
+        db.query(SubscriptionCycle)
+        .filter(SubscriptionCycle.subscription_id == subscription.id)
+        .order_by(SubscriptionCycle.cycle_index.desc())
+        .first()
+    )
+    next_cycle_index = (latest_cycle.cycle_index + 1) if latest_cycle else 1
+    period_start = subscription.next_payment_date
+    period_end = period_start + timedelta(days=subscription.interval_days)
+
+    cycle_row = _create_subscription_cycle_with_escrow(
+        db=db,
+        subscription=subscription,
+        user_seed=payload.user_seed,
+        cycle_index=next_cycle_index,
+        period_start=period_start,
+        period_end=period_end,
+    )
+    subscription.next_payment_date = period_end
+    subscription.status = "active"
+    subscription.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(subscription)
+
+    vendor = db.query(Vendor).filter(Vendor.id == subscription.vendor_id).first()
+    if vendor:
+        _send_vendor_webhook(
+            db,
+            vendor,
+            "subscription.cycle_created",
+            {
+                "event": "subscription.cycle_created",
+                "subscription_id": subscription.id,
+                "vendor_tx_id": subscription.vendor_tx_id,
+                "cycle_id": cycle_row.id,
+                "cycle_index": cycle_row.cycle_index,
+                "period_start": cycle_row.period_start.isoformat(),
+                "period_end": cycle_row.period_end.isoformat(),
+                "escrow_create_tx_hash": cycle_row.escrow_create_tx_hash,
+                "auto_renew": bool(subscription.auto_renew),
+            },
+        )
+
+    return _success(
+        "Subscription cycle created",
+        {
+            "subscription_id": subscription.id,
+            "cycle": _cycle_to_dict(cycle_row),
+            "next_payment_date": subscription.next_payment_date.isoformat(),
+            "auto_renew": bool(subscription.auto_renew),
+            "status": subscription.status,
+        },
+    )
 
 
 # Configure monthly spending guard values for a user.

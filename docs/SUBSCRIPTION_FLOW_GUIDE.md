@@ -1,16 +1,14 @@
-# Subscription Flow Guide (Vendor Request + User Approval)
+# Subscription Flow Guide (Per-Cycle Escrow Model)
 
-## Overview
-1. User registers `username -> wallet_address`.
-2. Vendor creates/updates their account and gets a shared secret.
-3. Vendor creates subscription request using shared secret header.
-4. User fetches pending requests and approves with seed.
-5. Backend verifies signed contract terms and creates XRPL escrow.
-6. Backend sends signed webhook events to vendor URL on state changes.
-   - `subscription.requested`
-   - `subscription.approved`
-   - `subscription.cancelled`
-   - `payment.sent` (for vendor-authenticated payment send endpoints)
+## Architecture Summary
+EquiPay subscriptions are stored as backend records and coordinated across multiple XRPL escrow transactions.
+
+- No single long-lived recurring on-ledger contract.
+- Each billing period is represented by a **subscription cycle** with its own escrow.
+- Cycle 1 escrow is created at user approval.
+- Future cycle escrows are created with `POST /subscriptions/{id}/cycles/process`.
+- Cancelling an active subscription sets `auto_renew=false` and `status=non_renewing`.
+- Existing already-created cycle escrows are not force-cancelled by non-renewing.
 
 ## Required Config
 - `VENDOR_SHARED_SECRET_HEADER` (default `X-Vendor-Secret`)
@@ -35,12 +33,7 @@
 ```
 Response includes `shared_secret`.
 
-## 3) Optional vendor profile operations
-- `GET /api/v1/vendors/me` (auth via `X-Vendor-Secret`)
-- `PATCH /api/v1/vendors/me` (update display name/wallet/webhook)
-- `POST /api/v1/vendors/me/secret/regenerate`
-
-## 4) Create subscription request
+## 3) Vendor creates subscription request
 `POST /api/v1/subscriptions/requests`
 Header:
 ```text
@@ -56,38 +49,42 @@ Body:
 }
 ```
 
-## 5) User checks pending
-`GET /api/v1/subscriptions/pending/alice`
-
-## 6) User approves
+## 4) User approves request (creates cycle 1 escrow)
 `POST /api/v1/subscriptions/{id}/approve`
 ```json
 { "username": "alice", "user_seed": "sEdExample..." }
 ```
 
-On success:
-- contract hash/signature verified
-- XRPL escrow created
-- status changes to `active/approved`
-- webhook event `subscription.approved` sent
+## 5) Create next billing cycle escrow
+`POST /api/v1/subscriptions/{id}/cycles/process`
+```json
+{ "username": "alice", "user_seed": "sEdExample..." }
+```
 
-## 7) Cancel
+## 6) Inspect cycle history
+`GET /api/v1/subscriptions/{id}/cycles`
+
+## 7) Cancel future renewals
 `POST /api/v1/subscriptions/{id}/cancel`
-- Vendor cancel: pass `X-Vendor-Secret`
-- User cancel: send `{ "username", "user_seed" }`
+- Vendor-side: pass `X-Vendor-Secret`
+- User-side: send `{ "username", "user_seed" }`
 
-If escrow is locked, user seed is required for escrow cancel transaction.
+Behavior:
+- Pending request -> status becomes `cancelled`
+- Active approved subscription -> `auto_renew=false`, `status=non_renewing`
 
-## Webhook Signature
-Webhook header value format:
+## Webhook Events
+- `subscription.requested`
+- `subscription.approved`
+- `subscription.cycle_created`
+- `subscription.cancelled`
+
+Webhook signature header:
 - `t=<unix_timestamp>,v1=<hmac_sha256_hex>`
-
-Signature input:
-- `<timestamp>.<raw_json_payload>`
-- HMAC-SHA256 using vendor `shared_secret`
+- signature input: `<timestamp>.<raw_json_payload>`
 
 ## Common Errors
-- `401` missing/invalid vendor shared secret
+- `401` invalid/missing vendor shared secret
 - `404` unknown username/subscription/contract
-- `409` duplicate `vendor_tx_id` or invalid state
+- `409` duplicate vendor transaction id or non-renewing cycle processing attempt
 - `400` invalid address/seed/signature mismatch

@@ -1,6 +1,6 @@
 # EquiPay Backend MVP
 
-FastAPI backend for XRPL Devnet with wallets, payments, vendor-managed subscriptions, escrow, and dashboard APIs.
+FastAPI backend for XRPL Devnet with wallets, payments, vendor-managed subscriptions, escrow cycles, and dashboard APIs.
 
 ## Stack
 - Python 3.10+
@@ -9,7 +9,8 @@ FastAPI backend for XRPL Devnet with wallets, payments, vendor-managed subscript
 - xrpl-py
 
 ## Hackathon Caveat
-Seeds and vendor shared secrets are stored/handled in plaintext for MVP speed. This is not production-safe.
+Seeds and vendor shared secrets are stored/handled in plaintext for MVP speed.
+This is not production-safe.
 
 ## Setup
 ```bash
@@ -25,6 +26,17 @@ uvicorn main:app --reload
 
 Swagger:
 - `http://127.0.0.1:8000/docs`
+
+## Subscription Architecture (Current)
+Subscriptions are **application-managed records** in SQLite.
+
+The backend creates **per-billing-cycle XRPL escrows** (one escrow transaction per cycle), not a single long-lived recurring on-ledger contract.
+
+- `approve` creates cycle 1 escrow.
+- `process cycle` creates the next cycle escrow.
+- `cancel` on active subscriptions sets `auto_renew=false` and `status=non_renewing`.
+- Non-renewing subscriptions stop creating future cycles.
+- Existing already-created cycle escrows are left as-is to finish/cancel on-chain.
 
 ## Environment Variables
 Defaults are in `src/backend/api/config.py`.
@@ -53,10 +65,19 @@ Misc:
 - Payments: `POST /payments/send`, `POST /payments/send-rlusd`, `GET /payments`, `GET /payments/{tx_hash}`
 - Users: `POST /users/register`
 - Vendors: `POST /vendors/upsert`, `GET /vendors/me`, `PATCH /vendors/me`, `POST /vendors/me/secret/regenerate`
-- Subscriptions: `POST /subscriptions/requests`, `GET /subscriptions/pending/{username}`, `POST /subscriptions/{id}/approve`, `POST /subscriptions/{id}/cancel`, `GET /subscriptions`, `GET /subscriptions/{id}`, `GET /subscriptions/contract/{contract_hash}`
+- Subscriptions:
+  - `POST /subscriptions/requests`
+  - `GET /subscriptions/pending/{username}`
+  - `POST /subscriptions/{id}/approve`
+  - `POST /subscriptions/{id}/cycles/process`
+  - `GET /subscriptions/{id}/cycles`
+  - `POST /subscriptions/{id}/cancel`
+  - `GET /subscriptions`
+  - `GET /subscriptions/{id}`
+  - `GET /subscriptions/contract/{contract_hash}`
 - Dashboard: `POST /spending-guard/set`, `GET /spending-guard/{wallet}`, `GET /history/{wallet}`, `GET /dashboard/{wallet}`
 
-## Vendor + Subscription Quick Flow
+## Quick Subscription Flow
 1. Register user profile:
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/users/register \
@@ -84,14 +105,21 @@ curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/requests \
   -d '{"vendor_tx_id":"VTX-001","username":"alice","amount_xrp":1.25,"interval_days":30}'
 ```
 
-4. User approves (creates escrow):
+4. User approves (creates cycle 1 escrow):
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/approve \
   -H "Content-Type: application/json" \
   -d '{"username":"alice","user_seed":"sEdExample..."}'
 ```
 
-5. Cancel (vendor or user):
+5. Create next cycle escrow when needed:
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/cycles/process \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","user_seed":"sEdExample..."}'
+```
+
+6. Cancel future renewals (non-renewing):
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/cancel \
   -H "X-Vendor-Secret: VENDOR_SHARED_SECRET"
@@ -100,6 +128,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/cancel \
 Webhook events are signed and sent to the configured vendor webhook URL for:
 - `subscription.requested`
 - `subscription.approved`
+- `subscription.cycle_created`
 - `subscription.cancelled`
 - `payment.sent` (when vendor-authenticated payment send calls are used)
 

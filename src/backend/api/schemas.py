@@ -57,6 +57,11 @@ class SubscriptionApproveRequest(BaseModel):
     user_seed: str = Field(..., min_length=8)
 
 
+class SubscriptionProcessCycleRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=128)
+    user_seed: str = Field(..., min_length=8)
+
+
 class SubscriptionCancelRequest(BaseModel):
     username: Optional[str] = None
     user_seed: Optional[str] = None

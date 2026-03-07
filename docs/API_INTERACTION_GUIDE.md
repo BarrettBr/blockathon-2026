@@ -28,7 +28,7 @@ Error shape:
 - `GET /payments`
 - `GET /payments/{tx_hash}`
 
-Note: if a vendor sends `X-Vendor-Secret` on payment send calls, EquiPay also emits a `payment.sent` webhook event to that vendor.
+If vendor auth header is sent on payment calls, EquiPay emits `payment.sent` webhook.
 
 ## Users
 ### POST `/users/register`
@@ -38,7 +38,7 @@ Note: if a vendor sends `X-Vendor-Secret` on payment send calls, EquiPay also em
 
 ## Vendors
 ### POST `/vendors/upsert`
-Create/update vendor and return shared secret.
+Create or update vendor and return shared secret.
 ```json
 {
   "vendor_code": "spotify",
@@ -53,20 +53,13 @@ Auth header: `X-Vendor-Secret: <shared_secret>`
 
 ### PATCH `/vendors/me`
 Auth header required.
-```json
-{
-  "display_name": "Spotify US",
-  "wallet_address": "rVENDOR...",
-  "webhook_url": "https://vendor.example.com/equipay/webhook"
-}
-```
 
 ### POST `/vendors/me/secret/regenerate`
-Auth header required. Returns new shared secret.
-
-## Subscription Flow
-### POST `/subscriptions/requests`
 Auth header required.
+
+## Subscriptions (Per-Cycle Escrow)
+### POST `/subscriptions/requests`
+Vendor-auth header required.
 ```json
 {
   "vendor_tx_id": "VTX-001",
@@ -77,16 +70,33 @@ Auth header required.
 ```
 
 ### GET `/subscriptions/pending/{username}`
+
 ### POST `/subscriptions/{id}/approve`
+Creates cycle 1 escrow.
 ```json
 { "username": "alice", "user_seed": "sEdExample..." }
 ```
+
+### POST `/subscriptions/{id}/cycles/process`
+Creates the next cycle escrow for approved auto-renew subscriptions.
+```json
+{ "username": "alice", "user_seed": "sEdExample..." }
+```
+
+### GET `/subscriptions/{id}/cycles`
+List all cycle escrow records for a subscription.
+
 ### POST `/subscriptions/{id}/cancel`
-- Vendor-side: auth header
+- Vendor-side: shared-secret header
 - User-side body:
 ```json
 { "username": "alice", "user_seed": "sEdExample..." }
 ```
+
+Behavior:
+- Pending request -> `cancelled`
+- Active approved -> `auto_renew=false`, `status=non_renewing`
+
 ### GET `/subscriptions`
 ### GET `/subscriptions/{id}`
 ### GET `/subscriptions/contract/{contract_hash}`
@@ -102,5 +112,5 @@ Auth header required.
 - `400` invalid input/signature/wallet mismatch
 - `401` invalid vendor shared secret
 - `404` missing record
-- `409` duplicate vendor tx or invalid state
+- `409` duplicate vendor tx or invalid subscription state (including non-renewing cycle processing)
 - `500` internal/XRPL failure

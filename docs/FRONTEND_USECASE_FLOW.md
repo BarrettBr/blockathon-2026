@@ -25,13 +25,17 @@ Base URL: `http://127.0.0.1:8000/api/v1`
    - `GET /subscriptions/pending/{username}`
 5. Approve selected request:
    - `POST /subscriptions/{id}/approve`
+6. Create next cycle escrow (when due/needed):
+   - `POST /subscriptions/{id}/cycles/process`
 
 ### Optional lookup / management
-6. Contract lookup by hash:
+7. Contract lookup by hash:
    - `GET /subscriptions/contract/{contract_hash}`
-7. Cancel subscription:
+8. List cycle records:
+   - `GET /subscriptions/{id}/cycles`
+9. Cancel subscription:
    - `POST /subscriptions/{id}/cancel`
-8. List subscriptions:
+10. List subscriptions:
    - `GET /subscriptions`
    - `GET /subscriptions/{id}`
 
@@ -44,5 +48,5 @@ Base URL: `http://127.0.0.1:8000/api/v1`
 - `400`: invalid seed/address/payload/contract mismatch
 - `401`: vendor shared-secret header invalid or missing
 - `404`: username/subscription/contract not found
-- `409`: duplicate vendor transaction id or invalid state
+- `409`: duplicate vendor transaction id, non-renewing cycle process, or invalid state
 - `500`: backend/XRPL unexpected failure

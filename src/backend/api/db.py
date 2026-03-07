@@ -84,6 +84,7 @@ class Subscription(Base):
     start_date = Column(Date, nullable=False)
     next_payment_date = Column(Date, nullable=False)
     last_tx_hash = Column(String(128), nullable=True)
+    auto_renew = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=utc_now)
     updated_at = Column(
         DateTime,
@@ -97,6 +98,25 @@ class Subscription(Base):
     escrow_create_tx_hash = Column(String(128), nullable=True)
     escrow_status = Column(String(32), nullable=False, default="not_started")
     escrow_cancel_after = Column(Integer, nullable=True)
+
+
+class SubscriptionCycle(Base):
+    __tablename__ = "subscription_cycles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    subscription_id = Column(Integer, ForeignKey("subscriptions.id"), nullable=False, index=True)
+    cycle_index = Column(Integer, nullable=False)
+    period_start = Column(Date, nullable=False)
+    period_end = Column(Date, nullable=False)
+    status = Column(String(32), nullable=False, default="locked")
+    escrow_amount_xrp = Column(Float, nullable=True)
+    escrow_offer_sequence = Column(Integer, nullable=True)
+    escrow_create_tx_hash = Column(String(128), nullable=True)
+    escrow_finish_tx_hash = Column(String(128), nullable=True)
+    escrow_cancel_tx_hash = Column(String(128), nullable=True)
+    escrow_cancel_after = Column(Integer, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+    updated_at = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
 
 class UserProfile(Base):
@@ -192,10 +212,12 @@ def _repair_legacy_schema_if_needed() -> None:
             "contract_hash",
             "contract_alg",
             "contract_version",
+            "auto_renew",
         },
         "vendors": {"vendor_code", "display_name", "wallet_address", "shared_secret"},
         "user_profiles": {"username", "wallet_address"},
         "webhook_deliveries": {"vendor_id", "event_type", "payload", "status"},
+        "subscription_cycles": {"subscription_id", "cycle_index", "period_start", "period_end"},
     }
 
     with engine.begin() as conn:

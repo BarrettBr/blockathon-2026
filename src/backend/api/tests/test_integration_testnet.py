@@ -25,6 +25,7 @@ from schemas import (
     RlusdPaymentSendRequest,
     SubscriptionApproveRequest,
     SubscriptionCancelRequest,
+    SubscriptionProcessCycleRequest,
     SubscriptionRequestCreateRequest,
     UserProfileRegisterRequest,
     VendorCreateRequest,
@@ -112,9 +113,17 @@ def test_testnet_escrow_create_and_cancel_flow(session):
     )
     assert approve_resp["data"]["status"] == "active"
 
+    process_resp = api_module.process_subscription_cycle(
+        sub_id,
+        SubscriptionProcessCycleRequest(username="integration_user", user_seed=user_seed),
+        session,
+    )
+    assert process_resp["data"]["cycle"]["cycle_index"] == 2
+
     sub_data = api_module.get_subscription(sub_id, session)["data"]
     assert sub_data["escrow_status"] == "locked"
     assert sub_data["escrow_offer_sequence"] is not None
+    assert sub_data["auto_renew"] is True
 
     cancel_resp = api_module.cancel_subscription_request(
         sub_id,
@@ -122,7 +131,8 @@ def test_testnet_escrow_create_and_cancel_flow(session):
         SubscriptionCancelRequest(username="integration_user", user_seed=user_seed),
         session,
     )
-    assert cancel_resp["data"]["status"] == "cancelled"
+    assert cancel_resp["data"]["status"] == "non_renewing"
+    assert cancel_resp["data"]["auto_renew"] is False
 
 
 def test_testnet_rlusd_trustline_and_payment_flow(session):

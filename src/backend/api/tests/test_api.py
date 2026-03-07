@@ -22,6 +22,7 @@ from schemas import (
     RlusdPaymentSendRequest,
     SubscriptionApproveRequest,
     SubscriptionCancelRequest,
+    SubscriptionProcessCycleRequest,
     SubscriptionRequestCreateRequest,
     UserProfileRegisterRequest,
     VendorCreateRequest,
@@ -85,25 +86,37 @@ def test_subscription_vendor_request_approve_cancel_flow(monkeypatch):
             raise ValueError("unknown seed")
         return SimpleNamespace(classic_address=mapping[seed])
 
-    def fake_lock_escrow(db_session, sub_row, _user_seed):
-        sub_row.escrow_status = "locked"
-        sub_row.escrow_offer_sequence = 999
-        sub_row.escrow_create_tx_hash = "ESCROW-LOCK-1"
-        sub_row.escrow_amount_xrp = sub_row.amount_xrp
+    def fake_create_cycle(**kwargs):
+        db_session = kwargs["db"]
+        subscription = kwargs["subscription"]
+        cycle_index = kwargs["cycle_index"]
+        period_start = kwargs["period_start"]
+        period_end = kwargs["period_end"]
+        cycle = db.SubscriptionCycle(
+            subscription_id=subscription.id,
+            cycle_index=cycle_index,
+            period_start=period_start,
+            period_end=period_end,
+            status="locked",
+            escrow_amount_xrp=subscription.amount_xrp,
+            escrow_offer_sequence=999 + cycle_index,
+            escrow_create_tx_hash=f"ESCROW-LOCK-{cycle_index}",
+            escrow_cancel_after=12345 + cycle_index,
+        )
+        db_session.add(cycle)
+        subscription.escrow_status = "locked"
+        subscription.escrow_offer_sequence = cycle.escrow_offer_sequence
+        subscription.escrow_create_tx_hash = cycle.escrow_create_tx_hash
+        subscription.escrow_amount_xrp = subscription.amount_xrp
+        subscription.last_tx_hash = cycle.escrow_create_tx_hash
         db_session.commit()
-        db_session.refresh(sub_row)
-        return {"tx_hash": "ESCROW-LOCK-1", "offer_sequence": 999, "status": "tesSUCCESS"}
-
-    def fake_cancel_escrow(db_session, sub_row, _user_seed):
-        sub_row.escrow_status = "cancelled"
-        db_session.commit()
-        db_session.refresh(sub_row)
-        return {"tx_hash": "ESCROW-CANCEL-1", "status": "tesSUCCESS"}
+        db_session.refresh(cycle)
+        db_session.refresh(subscription)
+        return cycle
 
     monkeypatch.setattr(api_module, "_is_valid_classic_address", lambda _address: True)
     monkeypatch.setattr(api_module, "_wallet_from_seed", fake_wallet_from_seed)
-    monkeypatch.setattr(api_module, "_lock_subscription_escrow", fake_lock_escrow)
-    monkeypatch.setattr(api_module, "_cancel_subscription_escrow", fake_cancel_escrow)
+    monkeypatch.setattr(api_module, "_create_subscription_cycle_with_escrow", fake_create_cycle)
 
     api_module.register_user_profile(
         UserProfileRegisterRequest(username="alice", wallet_address=user_address),
@@ -149,13 +162,31 @@ def test_subscription_vendor_request_approve_cancel_flow(monkeypatch):
     lookup_resp = api_module.get_subscription_by_contract(contract_hash, session)
     assert lookup_resp["data"]["contract_hash"] == contract_hash
 
+    process_resp = api_module.process_subscription_cycle(
+        sub_id,
+        SubscriptionProcessCycleRequest(username="alice", user_seed="user-seed-123"),
+        session,
+    )
+    assert process_resp["data"]["cycle"]["cycle_index"] == 2
+
     cancel_resp = api_module.cancel_subscription_request(
         sub_id,
         DummyRequest(),
         SubscriptionCancelRequest(username="alice", user_seed="user-seed-123"),
         session,
     )
-    assert cancel_resp["data"]["request_status"] == "cancelled"
+    assert cancel_resp["data"]["status"] == "non_renewing"
+    assert cancel_resp["data"]["auto_renew"] is False
+    with pytest.raises(HTTPException) as non_renewing_err:
+        api_module.process_subscription_cycle(
+            sub_id,
+            SubscriptionProcessCycleRequest(username="alice", user_seed="user-seed-123"),
+            session,
+        )
+    assert non_renewing_err.value.status_code == 409
+
+    cycles = api_module.list_subscription_cycles(sub_id, session)
+    assert len(cycles["data"]) == 2
     assert session.query(db.WebhookDelivery).count() >= 3
 
 
