@@ -116,6 +116,7 @@ async function cancelSubscription(id: number) {
 
     <article class="panel">
       <h3>Subscriptions</h3>
+      <div class="table-wrap">
       <table>
         <thead>
           <tr>
@@ -146,6 +147,7 @@ async function cancelSubscription(id: number) {
           </tr>
         </tbody>
       </table>
+      </div>
     </article>
   </section>
 </template>
@@ -183,4 +185,7 @@ table { width: 100%; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #e4efff; padding: 0.5rem; text-align: left; color: #35577f; }
 .actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .actions button { margin-top: 0; }
+.table-wrap { overflow-x: auto; }
+table { min-width: 780px; }
+@media (max-width: 900px) { table { min-width: 640px; } }
 </style>

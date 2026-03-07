@@ -108,6 +108,7 @@ async function sendRlusd() {
   padding: 1rem;
   display: grid;
   gap: 0.55rem;
+  min-height: 260px;
 }
 h3 { margin: 0 0 0.25rem; color: #1f467d; }
 label { color: #597aa6; font-size: 0.88rem; }
@@ -126,7 +127,7 @@ button {
   cursor: pointer;
 }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
-.meta { color: #456998; font-size: 0.9rem; }
+.meta { color: #456998; font-size: 0.9rem; word-break: break-all; }
 .message { color: #28558e; font-weight: 600; min-height: 1.2rem; }
 @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
 </style>

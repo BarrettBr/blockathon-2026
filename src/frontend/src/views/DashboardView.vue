@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from "vue";
+import { computed, watch } from "vue";
 import { useWalletStore } from "@/stores/wallet";
 import { useDashboardStore } from "@/stores/dashboard";
 
@@ -7,28 +7,56 @@ const wallet = useWalletStore();
 const dashboard = useDashboardStore();
 
 const data = computed(() => dashboard.data);
+const selectedAddress = computed(() => wallet.selectedWallet?.address || "");
+const errorText = computed(() => wallet.error || dashboard.error || "");
 
 async function load() {
-  if (!wallet.selectedWallet) return;
-  await wallet.fetchSelectedBalance();
-  await dashboard.loadDashboard(wallet.selectedWallet.address);
+  if (!selectedAddress.value) {
+    dashboard.data = null;
+    return;
+  }
+
+  try {
+    await wallet.fetchSelectedBalance();
+    await dashboard.loadDashboard(selectedAddress.value);
+  } catch {
+    // Store-level errors are surfaced in UI through errorText.
+  }
 }
 
-onMounted(load);
 watch(
-  () => wallet.selectedWallet?.address,
+  () => selectedAddress.value,
   async () => {
     await load();
   },
+  { immediate: true },
 );
 </script>
 
 <template>
   <section class="stack">
+    <div class="panel empty" v-if="!selectedAddress && !dashboard.loading">
+      <h3>No Wallet Connected</h3>
+      <p>Go to <strong>Wallet</strong> and connect/import a wallet seed to load dashboard data.</p>
+    </div>
+
+    <div class="panel" v-else-if="dashboard.loading">
+      <h3>Loading Dashboard...</h3>
+    </div>
+
     <div class="cards" v-if="data">
-      <article class="card"><h4>Balance</h4><p>{{ data.balance_rlusd?.toFixed?.(2) ?? data.balance_rlusd }} RLUSD</p></article>
-      <article class="card"><h4>Locked In Escrow</h4><p>{{ data.locked_in_escrow_xrp?.toFixed?.(2) ?? data.locked_in_escrow_xrp }} XRP</p></article>
-      <article class="card"><h4>Monthly Guard</h4><p>{{ data.monthly_guard?.limit ?? 0 }} {{ data.monthly_guard?.currency ?? "RLUSD" }}</p></article>
+      <article class="card">
+        <h4>Balance</h4>
+        <p>{{ data.balance_rlusd?.toFixed?.(2) ?? data.balance_rlusd }} RLUSD</p>
+      </article>
+      <article class="card">
+        <h4>Locked In Escrow</h4>
+        <p>{{ data.locked_in_escrow_xrp?.toFixed?.(2) ?? data.locked_in_escrow_xrp }} XRP</p>
+      </article>
+      <article class="card">
+        <h4>Monthly Guard</h4>
+        <p>{{ data.monthly_guard?.limit ?? 0 }} {{ data.monthly_guard?.currency ?? "RLUSD" }}</p>
+      </article>
     </div>
 
     <div class="panel" v-if="data">
@@ -62,7 +90,7 @@ watch(
       </div>
     </div>
 
-    <div v-if="dashboard.error" class="error">{{ dashboard.error }}</div>
+    <div v-if="errorText" class="error">{{ errorText }}</div>
   </section>
 </template>
 
@@ -83,6 +111,7 @@ watch(
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 ul { margin: 0; padding-left: 1rem; color: #35577f; }
 .error { color: #b42318; font-weight: 600; }
+.empty p { margin: 0; color: #4b6992; }
 @media (max-width: 900px) {
   .cards, .split { grid-template-columns: 1fr; }
 }

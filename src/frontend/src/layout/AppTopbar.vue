@@ -50,6 +50,7 @@ const walletBalance = computed(() => {
   height: 34px;
   font-size: 1rem;
   cursor: pointer;
+  display: none;
 }
 
 .title {
@@ -76,6 +77,11 @@ const walletBalance = computed(() => {
 }
 
 @media (max-width: 900px) {
+  .menu-btn {
+    display: inline-grid;
+    place-items: center;
+  }
+
   .title {
     display: none;
   }

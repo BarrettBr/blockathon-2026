@@ -18,6 +18,7 @@ watch(() => wallet.selectedWallet?.address, load);
 <template>
   <article class="panel">
     <h3>History</h3>
+    <div class="table-wrap">
     <table>
       <thead>
         <tr>
@@ -43,6 +44,7 @@ watch(() => wallet.selectedWallet?.address, load);
         </tr>
       </tbody>
     </table>
+    </div>
   </article>
 </template>
 
@@ -56,4 +58,6 @@ watch(() => wallet.selectedWallet?.address, load);
 h3 { margin: 0 0 0.7rem; color: #1f467d; }
 table { width: 100%; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #e4efff; padding: 0.5rem; text-align: left; color: #35577f; }
+.table-wrap { overflow-x: auto; }
+table { min-width: 720px; }
 </style>
