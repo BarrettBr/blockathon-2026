@@ -70,6 +70,40 @@ class Subscription(Base):
         default=utc_now,
         onupdate=utc_now,
     )
+    use_escrow = Column(Integer, nullable=False, default=1)
+    escrow_amount_xrp = Column(Float, nullable=True)
+    escrow_offer_sequence = Column(Integer, nullable=True)
+    escrow_create_tx_hash = Column(String(128), nullable=True)
+    escrow_status = Column(String(32), nullable=False, default="not_started")
+    escrow_cancel_after = Column(Integer, nullable=True)
+
+
+class SpendingGuard(Base):
+    __tablename__ = "spending_guards"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_wallet_address = Column(String(128), unique=True, index=True, nullable=False)
+    currency = Column(String(16), nullable=False, default="RLUSD")
+    monthly_limit = Column(Float, nullable=False, default=0.0)
+    spent_this_month = Column(Float, nullable=False, default=0.0)
+    month_key = Column(String(16), nullable=False, index=True)
+    updated_at = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+
+
+class HistoryEvent(Base):
+    __tablename__ = "history_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_wallet_address = Column(String(128), index=True, nullable=False)
+    event_type = Column(String(64), nullable=False)
+    tx_hash = Column(String(128), nullable=True)
+    counterparty_address = Column(String(128), nullable=True)
+    amount = Column(Float, nullable=True)
+    currency = Column(String(16), nullable=False, default="XRP")
+    status = Column(String(32), nullable=False, default="recorded")
+    note = Column(String(256), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
 
 
 def init_db() -> None:

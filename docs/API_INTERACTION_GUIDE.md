@@ -85,6 +85,9 @@ Output:
     "address": "r...",
     "balance_xrp": 12.345,
     "balance_drops": "12345000",
+    "rlusd_balance": 0.0,
+    "rlusd_currency": "RLUSD",
+    "rlusd_issuer": "r....",
     "ledger_index": 12345678
   }
 }
@@ -100,6 +103,17 @@ Input:
   "amount_xrp": 0.5
 }
 ```
+
+### POST `/payments/send-rlusd`
+Input:
+```json
+{
+  "sender_seed": "sEd...",
+  "destination_address": "r...",
+  "amount": 9.99
+}
+```
+Output: RLUSD transfer summary including `currency` and `issuer`.
 Output:
 ```json
 {
@@ -134,7 +148,8 @@ Input:
   "merchant_wallet_address": "r...",
   "user_seed": "sEd...",
   "amount_xrp": 1.25,
-  "interval_days": 30
+  "interval_days": 30,
+  "use_escrow": true
 }
 ```
 Output: subscription with `status=pending_handshake`, `handshake_status=pending`, and `terms_hash`.
@@ -154,8 +169,13 @@ Input:
 Output: subscription updated with `service_approval_tx_hash`. If both approvals exist: `status=active` and `handshake_status=completed`.
 
 ### POST `/subscriptions/{id}/process`
-Input: none  
-Behavior: sends one recurring payment using stored subscription terms.  
+Input for escrow subscriptions:
+```json
+{ "merchant_seed": "sEd..." }
+```
+Behavior:
+- `use_escrow=true`: releases currently locked escrow and creates the next lock.
+- `use_escrow=false`: sends direct recurring payment.
 Output:
 ```json
 {
@@ -186,9 +206,42 @@ Output:
 Input: none  
 Output: list of subscriptions.
 
+### GET `/subscriptions/user/{user_wallet_address}`
+Input: path `user_wallet_address`  
+Output: user's subscriptions sorted by newest first.
+
 ### GET `/subscriptions/{id}`
 Input: path `id`  
 Output: one subscription row.
+
+## Spending Guard
+### POST `/spending-guard/set`
+Input:
+```json
+{
+  "user_wallet_address": "r...",
+  "monthly_limit": 500,
+  "currency": "RLUSD"
+}
+```
+Output: current guard with `limit`, `spent_this_month`, and `remaining`.
+
+### GET `/spending-guard/{user_wallet_address}`
+Output: current monthly guard state.
+
+## History
+### GET `/history/{user_wallet_address}?limit=50`
+Output: history table rows sorted by date descending.
+
+## Dashboard
+### GET `/dashboard/{user_wallet_address}`
+Output: aggregated card/chart payload:
+- XRP and RLUSD balances
+- locked in escrow
+- monthly guard summary
+- this-month released/locked totals
+- upcoming releases
+- recent activity
 
 ## HTTP Status Behavior
 - `200`: success

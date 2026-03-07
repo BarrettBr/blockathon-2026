@@ -74,7 +74,7 @@ def test_wallet_import_and_list(client, monkeypatch):
     assert len(list_resp.json()["data"]) == 1
 
 
-def test_subscription_handshake_and_process_flow(client, monkeypatch):
+def test_subscription_handshake_escrow_and_process_flow(client, monkeypatch):
     user_address = "rUSER111111111111111111111111111111"
     merchant_address = "rMERCHANT11111111111111111111111111"
 
@@ -103,9 +103,34 @@ def test_subscription_handshake_and_process_flow(client, monkeypatch):
             "raw_result": {"hash": f"TX-{idx}"},
         }
 
+    def fake_lock_escrow(db_session, sub_row):
+        sub_row.escrow_status = "locked"
+        sub_row.escrow_offer_sequence = 999
+        sub_row.escrow_create_tx_hash = "ESCROW-LOCK-1"
+        sub_row.escrow_amount_xrp = sub_row.amount_xrp
+        db_session.commit()
+        db_session.refresh(sub_row)
+        return {"tx_hash": "ESCROW-LOCK-1", "offer_sequence": 999, "status": "tesSUCCESS"}
+
+    def fake_finish_escrow(db_session, sub_row, _merchant_seed):
+        sub_row.last_tx_hash = "ESCROW-FINISH-1"
+        sub_row.escrow_status = "released"
+        db_session.commit()
+        db_session.refresh(sub_row)
+        return {"tx_hash": "ESCROW-FINISH-1", "status": "tesSUCCESS"}
+
+    def fake_cancel_escrow(db_session, sub_row):
+        sub_row.escrow_status = "cancelled"
+        db_session.commit()
+        db_session.refresh(sub_row)
+        return {"tx_hash": "ESCROW-CANCEL-1", "status": "tesSUCCESS"}
+
     monkeypatch.setattr(api_module, "_is_valid_classic_address", lambda _address: True)
     monkeypatch.setattr(api_module, "_wallet_from_seed", fake_wallet_from_seed)
     monkeypatch.setattr(api_module, "_send_xrp_payment", fake_send_payment)
+    monkeypatch.setattr(api_module, "_lock_subscription_escrow", fake_lock_escrow)
+    monkeypatch.setattr(api_module, "_finish_subscription_escrow", fake_finish_escrow)
+    monkeypatch.setattr(api_module, "_cancel_subscription_escrow", fake_cancel_escrow)
 
     create_resp = client.post(
         "/api/v1/subscriptions/create",
@@ -115,6 +140,7 @@ def test_subscription_handshake_and_process_flow(client, monkeypatch):
             "user_seed": "user-seed-123",
             "amount_xrp": 1.5,
             "interval_days": 30,
+            "use_escrow": True,
         },
     )
     assert create_resp.status_code == 200
@@ -137,9 +163,12 @@ def test_subscription_handshake_and_process_flow(client, monkeypatch):
     assert service_approve_resp.status_code == 200
     assert service_approve_resp.json()["data"]["service_approval_tx_hash"] == "TX-2"
 
-    process_resp = client.post(f"/api/v1/subscriptions/{sub_id}/process")
+    process_resp = client.post(
+        f"/api/v1/subscriptions/{sub_id}/process",
+        json={"merchant_seed": "merchant-seed-123"},
+    )
     assert process_resp.status_code == 200
-    assert process_resp.json()["data"]["last_tx_hash"] == "TX-3"
+    assert process_resp.json()["data"]["last_tx_hash"] == "ESCROW-FINISH-1"
 
     cancel_resp = client.post(f"/api/v1/subscriptions/{sub_id}/cancel")
     assert cancel_resp.status_code == 200
@@ -179,3 +208,68 @@ def test_send_payment_records_transaction(client, monkeypatch):
     list_resp = client.get("/api/v1/payments")
     assert list_resp.status_code == 200
     assert any(row["tx_hash"] == "TX-PAY-1" for row in list_resp.json()["data"])
+
+
+def test_dashboard_spending_guard_and_history(client, monkeypatch):
+    user_address = "rDASHUSER11111111111111111111111111"
+
+    class DummyClient:
+        def request(self, req):
+            req_name = req.__class__.__name__
+            if req_name == "AccountInfo":
+                return SimpleNamespace(result={"account_data": {"Balance": "2000000"}, "ledger_index": 1})
+            if req_name == "AccountLines":
+                return SimpleNamespace(result={"lines": []})
+            return SimpleNamespace(result={})
+
+    monkeypatch.setattr(api_module, "_is_valid_classic_address", lambda _address: True)
+    monkeypatch.setattr(api_module, "_get_xrpl_client", lambda: DummyClient())
+
+    guard_resp = client.post(
+        "/api/v1/spending-guard/set",
+        json={
+            "user_wallet_address": user_address,
+            "monthly_limit": 500.0,
+            "currency": "RLUSD",
+        },
+    )
+    assert guard_resp.status_code == 200
+
+    history_resp = client.get(f"/api/v1/history/{user_address}")
+    assert history_resp.status_code == 200
+
+    dashboard_resp = client.get(f"/api/v1/dashboard/{user_address}")
+    assert dashboard_resp.status_code == 200
+    data = dashboard_resp.json()["data"]
+    assert data["wallet"] == user_address
+    assert "monthly_guard" in data
+    assert "recent_activity" in data
+
+
+def test_send_rlusd_payment_endpoint(client, monkeypatch):
+    monkeypatch.setattr(
+        api_module,
+        "_send_issued_payment",
+        lambda **kwargs: {
+            "tx_hash": "TX-RLUSD-1",
+            "status": "tesSUCCESS",
+            "tx_type": "payment_rlusd",
+            "from_address": "rSRCRLUSD111111111111111111111111",
+            "to_address": kwargs["destination_address"],
+            "validated": True,
+            "ledger_index": 101,
+            "raw_result": {"hash": "TX-RLUSD-1"},
+        },
+    )
+
+    resp = client.post(
+        "/api/v1/payments/send-rlusd",
+        json={
+            "sender_seed": "seed-rlusd-1",
+            "destination_address": "rDSTRLUSD111111111111111111111111",
+            "amount": 9.99,
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["tx_hash"] == "TX-RLUSD-1"
+    assert resp.json()["data"]["currency"] == api_module.settings.RLUSD_CURRENCY

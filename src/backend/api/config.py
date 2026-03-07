@@ -20,12 +20,15 @@ class Settings:
         "https://s.altnet.rippletest.net:51234",
     )
     XRPL_NETWORK: str = os.getenv("XRPL_NETWORK", "testnet")
+    RLUSD_CURRENCY: str = os.getenv("RLUSD_CURRENCY", "RLUSD")
+    RLUSD_ISSUER: str = os.getenv("RLUSD_ISSUER", "")
     AUTO_FUND_NEW_WALLETS: bool = os.getenv("AUTO_FUND_NEW_WALLETS", "true").lower() in {
         "1",
         "true",
         "yes",
     }
     HANDSHAKE_APPROVAL_DROPS: str = os.getenv("HANDSHAKE_APPROVAL_DROPS", "1")
+    DASHBOARD_RECENT_LIMIT: int = int(os.getenv("DASHBOARD_RECENT_LIMIT", "10"))
     FAUCET_RETRIES: int = int(os.getenv("FAUCET_RETRIES", "2"))
     XRPL_REQUEST_TIMEOUT_SECONDS: int = int(os.getenv("XRPL_REQUEST_TIMEOUT_SECONDS", "20"))
 

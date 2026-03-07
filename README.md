@@ -14,6 +14,7 @@ This project is intentionally simple and monolithic:
 
 Detailed request/response interaction docs:
 - [docs/API_INTERACTION_GUIDE.md](/home/barrett/workspaces/github.com/blockathon-2026/docs/API_INTERACTION_GUIDE.md)
+- [docs/FRONTEND_USECASE_FLOW.md](/home/barrett/workspaces/github.com/blockathon-2026/docs/FRONTEND_USECASE_FLOW.md)
 
 ## Important Hackathon Caveat
 Wallet seeds are stored in plaintext in SQLite for demo speed.
@@ -27,13 +28,14 @@ Current backend is close on core flows:
 - Subscription terms are hashed and fixed per agreement (`terms_hash`), so processing uses the exact approved terms.
 - Users can cancel subscriptions at any time.
 
-Remaining gap:
-- Full escrow-based locked-funds rail is not implemented yet. The MVP currently uses handshake + per-cycle payment processing.
+Current escrow status:
+- Escrow lock/release/cancel flow is now implemented for subscriptions (`use_escrow=true`).
+- Remaining gap is advanced production escrow automation/recovery (migrations, retries, background reconciliation).
 
 ## Test Status + Updated TODOs
 Latest local run (`pytest -q src/backend/api/tests`):
-- `4 passed`
-- Unit coverage includes: health, wallet import/list, payment persistence, and full subscription handshake/process/cancel flow.
+- `6 passed`
+- Unit coverage includes: health, wallet import/list, payment persistence, subscription handshake + escrow process/cancel, RLUSD send endpoint, and dashboard/guard/history responses.
 
 What worked:
 - Route wiring under `/api/v1`
@@ -42,10 +44,10 @@ What worked:
 - Payment and subscription processing persistence paths
 
 TODO based on real test outcomes:
-- Add true XRPL integration tests against Testnet (current tests mock XRPL calls).
-- Add negative tests for XRPL failure responses/timeouts and faucet errors.
+- Add true XRPL integration tests against Testnet for escrow create/finish/cancel and RLUSD trust-line/payment flows.
+- Add negative tests for XRPL failure responses/timeouts, faucet errors, and issuer/trust-line misconfiguration.
 - Add schema migration tooling (currently requires manual SQLite reset on schema changes).
-- Add escrow lock mode if you need full “locked funds” semantics.
+- Add periodic reconciliation job to confirm on-chain escrow state matches local DB.
 
 ## Setup
 ```bash
@@ -65,7 +67,11 @@ Defaults are already set in `src/backend/api/config.py`.
 - `SQLITE_URL` (default: `sqlite:///./xrpl_financial_hub.db`)
 - `XRPL_RPC_URL` (default: `https://s.altnet.rippletest.net:51234`)
 - `XRPL_NETWORK` (default: `testnet`)
+- `RLUSD_CURRENCY` (default: `RLUSD`)
+- `RLUSD_ISSUER` (default: empty, set this for RLUSD transfers/balance)
 - `AUTO_FUND_NEW_WALLETS` (default: `true`)
+- `HANDSHAKE_APPROVAL_DROPS` (default: `1`)
+- `DASHBOARD_RECENT_LIMIT` (default: `10`)
 - `FAUCET_RETRIES` (default: `2`)
 - `XRPL_REQUEST_TIMEOUT_SECONDS` (default: `20`)
 
@@ -87,15 +93,21 @@ Swagger docs:
 - `GET /api/v1/wallets/{address}/balance`
 - `GET /api/v1/wallets`
 - `POST /api/v1/payments/send`
+- `POST /api/v1/payments/send-rlusd`
 - `GET /api/v1/payments/{tx_hash}`
 - `GET /api/v1/payments`
 - `POST /api/v1/subscriptions/create`
 - `POST /api/v1/subscriptions/{id}/handshake/user-approve`
 - `POST /api/v1/subscriptions/{id}/handshake/service-approve`
 - `GET /api/v1/subscriptions`
+- `GET /api/v1/subscriptions/user/{user_wallet_address}`
 - `GET /api/v1/subscriptions/{id}`
 - `POST /api/v1/subscriptions/{id}/process`
 - `POST /api/v1/subscriptions/{id}/cancel`
+- `POST /api/v1/spending-guard/set`
+- `GET /api/v1/spending-guard/{user_wallet_address}`
+- `GET /api/v1/history/{user_wallet_address}`
+- `GET /api/v1/dashboard/{user_wallet_address}`
 
 ## Example Curl Flows
 
