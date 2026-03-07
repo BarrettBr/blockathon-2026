@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 import core
 from db import get_db
 from schemas import ApiResponse, BootstrapRlusdRequest, WalletImportRequest
+from handlers.auth import get_current_user
+from db import UserProfile
 
 
 router = APIRouter(tags=["wallets"])
@@ -17,20 +19,28 @@ def create_wallet(db: Session = Depends(get_db)):
 
 
 @router.post("/wallets/import", response_model=ApiResponse)
-def import_wallet(payload: WalletImportRequest, db: Session = Depends(get_db)):
+def import_wallet(
+        payload: WalletImportRequest,
+        db: Session = Depends(get_db),
+        current_user: UserProfile = Depends(get_current_user),
+):
     return core.import_wallet(payload, db)
 
 
 @router.post("/wallets/bootstrap-rlusd", response_model=ApiResponse)
-def bootstrap_rlusd_wallet(payload: BootstrapRlusdRequest, db: Session = Depends(get_db)):
+def bootstrap_rlusd_wallet(
+        payload: BootstrapRlusdRequest, 
+        db: Session = Depends(get_db),
+        current_user: UserProfile = Depends(get_current_user)
+):
     return core.bootstrap_rlusd_wallet(payload, db)
 
 
 @router.get("/wallets", response_model=ApiResponse)
-def list_wallets(db: Session = Depends(get_db)):
+def list_wallets(db: Session = Depends(get_db), current_user: UserProfile = Depends(get_current_user)):
     return core.list_wallets(db)
 
 
 @router.get("/wallets/{address}/balance", response_model=ApiResponse)
-def get_wallet_balance(address: str):
+def get_wallet_balance(address: str, current_user: UserProfile = Depends(get_current_user)):
     return core.get_wallet_balance(address)

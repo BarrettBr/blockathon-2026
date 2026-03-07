@@ -11,6 +11,7 @@ from typing import Any, Optional
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
+from handlers.auth import get_current_user
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
