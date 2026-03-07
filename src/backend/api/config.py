@@ -1,4 +1,4 @@
-"""Central config for the XRPL Financial Hub hackathon MVP."""
+"""Central config for the EquiPay hackathon MVP."""
 
 from dataclasses import dataclass
 import os
@@ -6,14 +6,14 @@ import os
 
 @dataclass(frozen=True)
 class Settings:
-    APP_NAME: str = os.getenv("APP_NAME", "XRPL Financial Hub")
+    APP_NAME: str = os.getenv("APP_NAME", "EquiPay")
     API_PREFIX: str = os.getenv("API_PREFIX", "/api/v1")
 
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8000"))
     DEBUG: bool = os.getenv("DEBUG", "true").lower() in {"1", "true", "yes"}
 
-    SQLITE_URL: str = os.getenv("SQLITE_URL", "sqlite:///./xrpl_financial_hub.db")
+    SQLITE_URL: str = os.getenv("SQLITE_URL", "sqlite:///./equipay.db")
 
     XRPL_RPC_URL: str = os.getenv(
         "XRPL_RPC_URL",

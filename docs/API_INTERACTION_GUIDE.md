@@ -1,4 +1,4 @@
-# API Interaction Guide (XRPL Financial Hub)
+# API Interaction Guide (EquiPay)
 
 Base URL (local): `http://127.0.0.1:8000/api/v1`
 
@@ -26,7 +26,7 @@ Output:
   "message": "Service health",
   "data": {
     "status": "ok",
-    "app": "XRPL Financial Hub",
+    "app": "EquiPay",
     "network": "testnet",
     "xrpl_rpc_url": "https://s.altnet.rippletest.net:51234",
     "xrpl_ready": true,

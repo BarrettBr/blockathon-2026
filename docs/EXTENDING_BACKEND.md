@@ -52,12 +52,11 @@ def create_invoice(payload: CreateInvoiceRequest, db: Session = Depends(get_db))
 All routes are mounted under `settings.API_PREFIX` (default `/api/v1`).
 
 ## 4. XRPL Integration Pattern
-Use lazy imports inside handlers so app can still boot if `xrpl-py` is missing.
+Use the existing top-level `xrpl-py` imports in `api.py` and keep XRPL logic in helper functions near the top of that file.
 
 Pattern:
 ```python
 client = _get_xrpl_client()
-from xrpl.models.requests import AccountInfo
 result = client.request(AccountInfo(account=address)).result
 ```
 

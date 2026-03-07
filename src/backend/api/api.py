@@ -1,4 +1,4 @@
-"""API router for XRPL Financial Hub MVP."""
+"""API router for EquiPay MVP."""
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal

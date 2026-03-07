@@ -1,4 +1,4 @@
-# XRPL Financial Hub Backend MVP
+# EquiPay Backend MVP
 
 Hackathon-ready FastAPI backend for XRPL Testnet using:
 - Python 3.10+
@@ -36,6 +36,7 @@ Current escrow status:
 Latest local run (`pytest -q src/backend/api/tests`):
 - `6 passed`
 - Unit coverage includes: health, wallet import/list, payment persistence, subscription handshake + escrow process/cancel, RLUSD send endpoint, and dashboard/guard/history responses.
+- Integration coverage added (env-gated): XRPL Testnet escrow create/finish/cancel and RLUSD trust-line/payment.
 
 What worked:
 - Route wiring under `/api/v1`
@@ -44,10 +45,29 @@ What worked:
 - Payment and subscription processing persistence paths
 
 TODO based on real test outcomes:
-- Add true XRPL integration tests against Testnet for escrow create/finish/cancel and RLUSD trust-line/payment flows.
 - Add negative tests for XRPL failure responses/timeouts, faucet errors, and issuer/trust-line misconfiguration.
 - Add schema migration tooling (currently requires manual SQLite reset on schema changes).
 - Add periodic reconciliation job to confirm on-chain escrow state matches local DB.
+
+## Running Live Testnet Integration Tests
+Integration tests are in `src/backend/api/tests/test_integration_testnet.py` and are skipped unless required env vars are set.
+
+Escrow flow vars:
+- `TESTNET_USER_SEED`
+- `TESTNET_MERCHANT_SEED`
+- `TESTNET_ESCROW_AMOUNT_XRP` (optional, default `0.00001`)
+
+RLUSD flow vars:
+- `TESTNET_RLUSD_SENDER_SEED`
+- `TESTNET_RLUSD_RECEIVER_SEED`
+- `TESTNET_RLUSD_ISSUER`
+- `TESTNET_RLUSD_CURRENCY` (optional, default `RLUSD`)
+- `TESTNET_RLUSD_AMOUNT` (optional, default `0.01`)
+
+Run:
+```bash
+pytest -q src/backend/api/tests/test_integration_testnet.py -m integration
+```
 
 ## Setup
 ```bash
@@ -59,12 +79,12 @@ pip install -r requirements.txt
 ## Environment Variables
 Defaults are already set in `src/backend/api/config.py`.
 
-- `APP_NAME` (default: `XRPL Financial Hub`)
+- `APP_NAME` (default: `EquiPay`)
 - `API_PREFIX` (default: `/api/v1`)
 - `HOST` (default: `0.0.0.0`)
 - `PORT` (default: `8000`)
 - `DEBUG` (default: `true`)
-- `SQLITE_URL` (default: `sqlite:///./xrpl_financial_hub.db`)
+- `SQLITE_URL` (default: `sqlite:///./equipay.db`)
 - `XRPL_RPC_URL` (default: `https://s.altnet.rippletest.net:51234`)
 - `XRPL_NETWORK` (default: `testnet`)
 - `RLUSD_CURRENCY` (default: `RLUSD`)
@@ -81,7 +101,7 @@ From `src/backend/api`:
 uvicorn main:app --reload
 ```
 
-If you already had an older DB file, delete `src/backend/api/xrpl_financial_hub.db` (or your configured SQLite file) after schema changes and restart.
+If you already had an older DB file, delete `src/backend/api/equipay.db` (or your configured SQLite file) after schema changes and restart.
 
 Swagger docs:
 - `http://127.0.0.1:8000/docs`
