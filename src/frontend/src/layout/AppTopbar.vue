@@ -17,7 +17,8 @@ const items = ref([
 ]);
 
 const toggleMenu = (event: Event) => {
-  menu.value.toggle(event);
+  // event.currentTarget ensures it anchors to the <Button>, not the inner <i> or <span>
+  menu.value.toggle(event); 
 };
 
 const walletBalance = computed(() => {
@@ -31,20 +32,21 @@ const walletBalance = computed(() => {
     <button class="menu-btn" @click="layout.toggleSidebar">☰</button>
     <div class="title">EquiPay: Consumer Payments on XRPL</div>
 
-    <div class="right">
-      <div class="balance">Balance: {{ walletBalance }} RLUSD</div>
-      
-      <Button 
-        label="My Account" 
-        icon="pi pi-chevron-down" 
-        iconPos="right" 
-        text 
-        class="account-btn"
-        @click="toggleMenu" 
-        aria-haspopup="true" 
-      />
-      <Menu ref="menu" :model="items" :popup="true" />
-    </div>
+	<div class="right">
+		<div class="balance">Balance: {{ walletBalance }} RLUSD</div>
+
+		<Button 
+			 text 
+			 class="account-btn"
+			 @click="toggleMenu" 
+			 >
+			 <i class="pi pi-user-circle" style="font-size: 1.5rem; margin-right: 0.5rem;"></i>
+			 <span>My Account</span>
+			 <i class="pi pi-chevron-down" style="margin-left: 0.5rem; font-size: 0.8rem;"></i>
+		</Button>
+
+		<Menu ref="menu" :model="items" :popup="true" />
+	</div>
   </header>
 </template>
 
@@ -121,5 +123,52 @@ const walletBalance = computed(() => {
   .balance {
     font-size: 0.85rem;
   }
+}
+
+
+/* --- POPUP MENU CONTAINER --- */
+:deep(.p-menu) {
+  background: #ffffff; /* Fix: Added missing background */
+  min-width: 200px;
+  border: 1px solid #d8e6ff;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08); /* Smoother shadow */
+  padding: 0.5rem;
+  z-index: 1000; /* Ensure it stays above everything */
+}
+
+/* --- RESET LIST SPACING --- */
+:deep(.p-menu-list) {
+  padding: 0;
+  margin: 0;
+  list-style-type: none;
+}
+
+/* --- MENU ITEMS --- */
+:deep(.p-menuitem) {
+  margin: 0.15rem 0; /* Tiny gap between items */
+}
+
+:deep(.p-menuitem-link) {
+  color: #345f94 !important;
+  font-weight: 500;
+  padding: 0.5rem 0.75rem; /* Consistent internal spacing */
+  transition: background 0.2s, color 0.2s;
+  border-radius: 6px; /* Keep hover background inside the container */
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem; /* Space between icon and text */
+}
+
+:deep(.p-menuitem-link:hover) {
+  background: #f0f7ff !important;
+  color: #1f4f90 !important;
+}
+
+/* --- MENU SEPARATOR --- */
+:deep(.p-menu-separator) {
+  border-top: 1px solid #d8e6ff;
+  margin: 0.5rem 0;
 }
 </style>
