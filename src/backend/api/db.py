@@ -121,12 +121,12 @@ class SubscriptionCycle(Base):
 
 class UserProfile(Base):
     __tablename__ = "user_profiles"
-
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(128), unique=True, nullable=False, index=True)
     wallet_address = Column(String(128), nullable=False, index=True)
     created_at = Column(DateTime, nullable=False, default=utc_now)
     updated_at = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+    hashed_password = Column(String, nullable=True)
 
 
 class Vendor(Base):

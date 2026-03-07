@@ -10,13 +10,16 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-
 API_DIR = Path(__file__).resolve().parents[1]
 if str(API_DIR) not in sys.path:
     sys.path.insert(0, str(API_DIR))
 
+from config import settings
+from handlers.auth import create_access_token, get_current_user, hash_password, login, verify_password
+
 import core as api_module
 import db
+from db import UserProfile
 from schemas import (
     PaymentSendRequest,
     RlusdPaymentSendRequest,
@@ -395,3 +398,112 @@ def test_send_rlusd_payment_endpoint(monkeypatch):
     )
     assert resp["data"]["tx_hash"] == "TX-RLUSD-1"
     assert resp["data"]["currency"] == api_module.settings.RLUSD_CURRENCY
+
+
+
+def _make_form(username: str, password: str):
+    class FormData:
+        pass
+    form = FormData()
+    form.username = username
+    form.password = password
+    return form
+
+
+def test_hash_password_is_not_plaintext():
+    hashed = hash_password("mysecretpassword")
+    assert hashed != "mysecretpassword"
+    assert hashed.startswith("$2b$")
+
+
+def test_verify_password_correct():
+    assert verify_password("correcthorse", hash_password("correcthorse")) is True
+
+
+def test_verify_password_wrong():
+    assert verify_password("wrongpassword", hash_password("correcthorse")) is False
+
+
+def test_create_access_token_contains_subject():
+    token = create_access_token({"sub": "alice"})
+    # decode via the same function chain — just check login round-trip below
+    assert isinstance(token, str)
+    assert len(token) > 0
+
+
+def test_login_returns_token():
+    session = _session()
+    session.add(UserProfile(
+        username="loginuser",
+        wallet_address="rLOGIN111111111111111111111111111",
+        hashed_password=hash_password("password123"),
+    ))
+    session.commit()
+
+    result = login(form_data=_make_form("loginuser", "password123"), db=session)
+    assert "access_token" in result
+    assert result["token_type"] == "bearer"
+
+
+def test_login_wrong_password():
+    session = _session()
+    session.add(UserProfile(
+        username="loginuser2",
+        wallet_address="rLOGIN222222222222222222222222222",
+        hashed_password=hash_password("correctpassword"),
+    ))
+    session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        login(form_data=_make_form("loginuser2", "wrongpassword"), db=session)
+    assert exc.value.status_code == 401
+
+
+def test_login_unknown_user():
+    session = _session()
+    with pytest.raises(HTTPException) as exc:
+        login(form_data=_make_form("nobody", "doesntmatter"), db=session)
+    assert exc.value.status_code == 401
+
+
+def test_login_user_without_password():
+    session = _session()
+    session.add(UserProfile(
+        username="nopwduser",
+        wallet_address="rNOPWD11111111111111111111111111",
+        hashed_password=None,
+    ))
+    session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        login(form_data=_make_form("nopwduser", "anything"), db=session)
+    assert exc.value.status_code == 401
+
+
+def test_get_current_user_valid_token():
+    session = _session()
+    session.add(UserProfile(
+        username="tokenuser",
+        wallet_address="rTOKEN11111111111111111111111111",
+        hashed_password=hash_password("pw"),
+    ))
+    session.commit()
+
+    token = create_access_token({"sub": "tokenuser"})
+    result = get_current_user(token=token, db=session)
+    assert result.username == "tokenuser"
+
+
+def test_get_current_user_invalid_token():
+    session = _session()
+    with pytest.raises(HTTPException) as exc:
+        get_current_user(token="not.a.valid.token", db=session)
+    assert exc.value.status_code == 401
+
+
+def test_get_current_user_unknown_user():
+    session = _session()
+    token = create_access_token({"sub": "ghost"})
+    with pytest.raises(HTTPException) as exc:
+        get_current_user(token=token, db=session)
+    assert exc.value.status_code == 401
