@@ -12,9 +12,40 @@ This project is intentionally simple and monolithic:
 - `src/backend/api/db.py`
 - `src/backend/api/api.py`
 
+Detailed request/response interaction docs:
+- [docs/API_INTERACTION_GUIDE.md](/home/barrett/workspaces/github.com/blockathon-2026/docs/API_INTERACTION_GUIDE.md)
+
 ## Important Hackathon Caveat
 Wallet seeds are stored in plaintext in SQLite for demo speed.
 This is **not production-safe**.
+
+## Alignment With Project Vision
+Current backend is close on core flows:
+- Wallet creation/import, balance checks, and payment sending are live on XRPL Testnet.
+- Subscriptions now use an explicit two-party handshake model before recurring processing.
+- Handshake approvals are recorded on-chain as XRP transactions with terms-hash memos.
+- Subscription terms are hashed and fixed per agreement (`terms_hash`), so processing uses the exact approved terms.
+- Users can cancel subscriptions at any time.
+
+Remaining gap:
+- Full escrow-based locked-funds rail is not implemented yet. The MVP currently uses handshake + per-cycle payment processing.
+
+## Test Status + Updated TODOs
+Latest local run (`pytest -q src/backend/api/tests`):
+- `4 passed`
+- Unit coverage includes: health, wallet import/list, payment persistence, and full subscription handshake/process/cancel flow.
+
+What worked:
+- Route wiring under `/api/v1`
+- DB writes/reads for wallets, payments, subscriptions
+- Handshake state transitions before process
+- Payment and subscription processing persistence paths
+
+TODO based on real test outcomes:
+- Add true XRPL integration tests against Testnet (current tests mock XRPL calls).
+- Add negative tests for XRPL failure responses/timeouts and faucet errors.
+- Add schema migration tooling (currently requires manual SQLite reset on schema changes).
+- Add escrow lock mode if you need full “locked funds” semantics.
 
 ## Setup
 ```bash
@@ -44,6 +75,8 @@ From `src/backend/api`:
 uvicorn main:app --reload
 ```
 
+If you already had an older DB file, delete `src/backend/api/xrpl_financial_hub.db` (or your configured SQLite file) after schema changes and restart.
+
 Swagger docs:
 - `http://127.0.0.1:8000/docs`
 
@@ -57,6 +90,8 @@ Swagger docs:
 - `GET /api/v1/payments/{tx_hash}`
 - `GET /api/v1/payments`
 - `POST /api/v1/subscriptions/create`
+- `POST /api/v1/subscriptions/{id}/handshake/user-approve`
+- `POST /api/v1/subscriptions/{id}/handshake/service-approve`
 - `GET /api/v1/subscriptions`
 - `GET /api/v1/subscriptions/{id}`
 - `POST /api/v1/subscriptions/{id}/process`
@@ -125,12 +160,26 @@ curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/create \
 curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/process
 ```
 
-### 10) Cancel Subscription
+### 10) User Approves Handshake (on-chain)
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/handshake/user-approve \
+  -H "Content-Type: application/json" \
+  -d '{"user_seed":"sEd..."}'
+```
+
+### 11) Service Approves Handshake (on-chain)
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/handshake/service-approve \
+  -H "Content-Type: application/json" \
+  -d '{"merchant_seed":"sEd..."}'
+```
+
+### 12) Cancel Subscription
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/subscriptions/1/cancel
 ```
 
-### 11) List Subscriptions
+### 13) List Subscriptions
 ```bash
 curl http://127.0.0.1:8000/api/v1/subscriptions
 ```

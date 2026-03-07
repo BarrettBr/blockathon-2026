@@ -25,6 +25,7 @@ class Settings:
         "true",
         "yes",
     }
+    HANDSHAKE_APPROVAL_DROPS: str = os.getenv("HANDSHAKE_APPROVAL_DROPS", "1")
     FAUCET_RETRIES: int = int(os.getenv("FAUCET_RETRIES", "2"))
     XRPL_REQUEST_TIMEOUT_SECONDS: int = int(os.getenv("XRPL_REQUEST_TIMEOUT_SECONDS", "20"))
 

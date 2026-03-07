@@ -1,11 +1,16 @@
 """Single-file database setup and models for the hackathon MVP."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Column, Date, DateTime, Float, Integer, String, create_engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from config import settings
+
+
+def utc_now() -> datetime:
+    """Return current UTC timestamp as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 
 engine = create_engine(
@@ -24,7 +29,7 @@ class Wallet(Base):
     # Hackathon-only shortcut: plaintext seeds are NOT production-safe.
     seed = Column(String(256), nullable=True)
     network = Column(String(32), nullable=False, default=settings.XRPL_NETWORK)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
 
 
 class Transaction(Base):
@@ -37,7 +42,7 @@ class Transaction(Base):
     to_address = Column(String(128), nullable=False)
     amount_xrp = Column(Float, nullable=False, default=0.0)
     status = Column(String(32), nullable=False, default="submitted")
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
 
 
 class Subscription(Base):
@@ -50,16 +55,20 @@ class Subscription(Base):
     user_seed = Column(String(256), nullable=False)
     amount_xrp = Column(Float, nullable=False, default=0.0)
     interval_days = Column(Integer, nullable=False, default=30)
-    status = Column(String(32), nullable=False, default="active")
+    status = Column(String(32), nullable=False, default="pending_handshake")
+    terms_hash = Column(String(128), nullable=False, index=True)
+    handshake_status = Column(String(32), nullable=False, default="pending")
+    user_approval_tx_hash = Column(String(128), nullable=True)
+    service_approval_tx_hash = Column(String(128), nullable=True)
     start_date = Column(Date, nullable=False)
     next_payment_date = Column(Date, nullable=False)
     last_tx_hash = Column(String(128), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
     updated_at = Column(
         DateTime,
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
 
