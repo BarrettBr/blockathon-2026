@@ -125,11 +125,24 @@ export const apiHelper = {
   getSpendingGuard: (userWalletAddress: string) =>
     api.get<ApiEnvelope<any>>(`/spending-guard/${userWalletAddress}`),
 
-  getHistory: (userWalletAddress: string, limit = 50) =>
-    api.get<ApiEnvelope<any[]>>(`/history/${userWalletAddress}?limit=${limit}`),
+	getHistory: (userWalletAddress: string, limit = 50) =>
+	api.get<ApiEnvelope<any[]>>(`/history/${userWalletAddress}?limit=${limit}`),
 
-  getDashboard: (userWalletAddress: string) =>
-    api.get<ApiEnvelope<any>>(`/dashboard/${userWalletAddress}`),
+		getDashboard: (userWalletAddress: string) =>
+	api.get<ApiEnvelope<any>>(`/dashboard/${userWalletAddress}`),
+	// Add to the apiHelper object
+	register: (payload: { username: string; password: string; wallet_address: string }) =>
+	api.post<ApiEnvelope<any>>("/auth/register", null, { params: payload }),
+
+	login: (username: string, password: string) => {
+		const form = new URLSearchParams();
+		form.append("username", username);
+		form.append("password", password);
+		return api.post<{ access_token: string; token_type: string }>("/auth/token", form, {
+			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+		});
+	},
 };
+
 
 export default apiHelper;
