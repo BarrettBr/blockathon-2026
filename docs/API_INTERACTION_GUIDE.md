@@ -27,8 +27,8 @@ Output:
   "data": {
     "status": "ok",
     "app": "EquiPay",
-    "network": "testnet",
-    "xrpl_rpc_url": "https://s.altnet.rippletest.net:51234",
+    "network": "devnet",
+    "xrpl_rpc_url": "https://s.devnet.rippletest.net:51234",
     "xrpl_ready": true,
     "xrpl_error": null
   }
@@ -45,8 +45,8 @@ Output (example):
   "data": {
     "id": 1,
     "address": "r...",
-    "seed": "sEd...",
-    "network": "testnet",
+    "seed": "sEdExampleUserSecretValue",
+    "network": "devnet",
     "funded": true,
     "funding_message": null
   }
@@ -56,7 +56,7 @@ Output (example):
 ### POST `/wallets/import`
 Input:
 ```json
-{ "seed": "sEd..." }
+{ "seed": "sEdExampleUserSecretValue" }
 ```
 Output:
 ```json
@@ -65,8 +65,8 @@ Output:
   "data": {
     "id": 2,
     "address": "r...",
-    "seed": "sEd...",
-    "network": "testnet"
+    "seed": "sEdExampleUserSecretValue",
+    "network": "devnet"
   }
 }
 ```
@@ -74,6 +74,16 @@ Output:
 ### GET `/wallets`
 Input: none  
 Output: list of wallet rows.
+
+### POST `/wallets/bootstrap-rlusd`
+Input:
+```json
+{
+  "user_seed": "sEdExampleUserSecretValue",
+  "mint_amount": 100
+}
+```
+Output: trustline setup + mint transaction details + updated RLUSD balance.
 
 ### GET `/wallets/{address}/balance`
 Input: path `address`  
@@ -98,7 +108,7 @@ Output:
 Input:
 ```json
 {
-  "sender_seed": "sEd...",
+  "sender_seed": "sEdExampleUserSecretValue",
   "destination_address": "r...",
   "amount_xrp": 0.5
 }
@@ -108,7 +118,7 @@ Input:
 Input:
 ```json
 {
-  "sender_seed": "sEd...",
+  "sender_seed": "sEdExampleUserSecretValue",
   "destination_address": "r...",
   "amount": 9.99
 }
@@ -146,7 +156,7 @@ Input:
 {
   "user_wallet_address": "r...",
   "merchant_wallet_address": "r...",
-  "user_seed": "sEd...",
+  "user_seed": "sEdExampleUserSecretValue",
   "amount_xrp": 1.25,
   "interval_days": 30,
   "use_escrow": true
@@ -157,22 +167,24 @@ Output: subscription with `status=pending_handshake`, `handshake_status=pending`
 ### POST `/subscriptions/{id}/handshake/user-approve`
 Input:
 ```json
-{ "user_seed": "sEd..." }
+{ "user_seed": "sEdExampleUserSecretValue" }
 ```
 Output: subscription updated with `user_approval_tx_hash`.
 
 ### POST `/subscriptions/{id}/handshake/service-approve`
 Input:
 ```json
-{ "merchant_seed": "sEd..." }
+{ "merchant_seed": "sEdExampleMerchantSecretValue" }
 ```
+Or omit `merchant_seed` if `OPERATOR_WALLET_SEED` is configured.
 Output: subscription updated with `service_approval_tx_hash`. If both approvals exist: `status=active` and `handshake_status=completed`.
 
 ### POST `/subscriptions/{id}/process`
 Input for escrow subscriptions:
 ```json
-{ "merchant_seed": "sEd..." }
+{ "merchant_seed": "sEdExampleMerchantSecretValue" }
 ```
+Or omit `merchant_seed` if `OPERATOR_WALLET_SEED` is configured.
 Behavior:
 - `use_escrow=true`: releases currently locked escrow and creates the next lock.
 - `use_escrow=false`: sends direct recurring payment.

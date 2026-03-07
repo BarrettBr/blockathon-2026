@@ -17,6 +17,8 @@ export const apiHelper = {
   health: () => api.get<ApiEnvelope<any>>("/health"),
 
   importWallet: (seed: string) => api.post<ApiEnvelope<any>>("/wallets/import", { seed }),
+  bootstrapRlusdWallet: (payload: { user_seed: string; mint_amount: number }) =>
+    api.post<ApiEnvelope<any>>("/wallets/bootstrap-rlusd", payload),
   createWallet: () => api.post<ApiEnvelope<any>>("/wallets/create"),
   listWallets: () => api.get<ApiEnvelope<any[]>>("/wallets"),
   getWalletBalance: (address: string) =>

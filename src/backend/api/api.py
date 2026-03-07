@@ -14,7 +14,14 @@ from xrpl.clients import JsonRpcClient
 from xrpl.core.addresscodec import is_valid_classic_address
 from xrpl.models.amounts import IssuedCurrencyAmount
 from xrpl.models.requests import AccountInfo, AccountLines, ServerInfo, Tx
-from xrpl.models.transactions import EscrowCancel, EscrowCreate, EscrowFinish, Memo, Payment
+from xrpl.models.transactions import (
+    EscrowCancel,
+    EscrowCreate,
+    EscrowFinish,
+    Memo,
+    Payment,
+    TrustSet,
+)
 from xrpl.transaction import submit_and_wait
 from xrpl.utils import datetime_to_ripple_time, xrp_to_drops
 from xrpl.wallet import Wallet as XRPLWallet
@@ -43,6 +50,11 @@ class RlusdPaymentSendRequest(BaseModel):
     amount: float = Field(..., gt=0)
 
 
+class BootstrapRlusdRequest(BaseModel):
+    user_seed: str = Field(..., min_length=8)
+    mint_amount: float = Field(default=100.0, gt=0)
+
+
 class SubscriptionCreateRequest(BaseModel):
     user_wallet_address: str = Field(..., min_length=25)
     merchant_wallet_address: str = Field(..., min_length=25)
@@ -57,7 +69,7 @@ class UserHandshakeApproveRequest(BaseModel):
 
 
 class ServiceHandshakeApproveRequest(BaseModel):
-    merchant_seed: str = Field(..., min_length=8)
+    merchant_seed: Optional[str] = None
 
 
 class SubscriptionProcessRequest(BaseModel):
@@ -119,6 +131,39 @@ def _wallet_from_seed(seed: str) -> XRPLWallet:
         return XRPLWallet.from_seed(seed)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid seed: {exc}") from exc
+
+
+# Validate that a configured seed matches the expected classic address.
+def _assert_seed_matches_address(seed: str, expected_address: str, config_name: str) -> None:
+    if not expected_address:
+        return
+    actual_address = _wallet_from_seed(seed).classic_address
+    if actual_address != expected_address:
+        raise HTTPException(
+            status_code=500,
+            detail=f"{config_name} does not match its configured seed.",
+        )
+
+
+# Resolve merchant/operator seed for service actions.
+def _resolve_service_seed(explicit_seed: Optional[str]) -> str:
+    seed = (explicit_seed or "").strip()
+    if seed:
+        return seed
+
+    operator_seed = settings.OPERATOR_WALLET_SEED.strip()
+    if operator_seed:
+        _assert_seed_matches_address(
+            operator_seed,
+            settings.OPERATOR_WALLET_ADDRESS.strip(),
+            "OPERATOR_WALLET_ADDRESS",
+        )
+        return operator_seed
+
+    raise HTTPException(
+        status_code=400,
+        detail="merchant_seed is required unless OPERATOR_WALLET_SEED is configured.",
+    )
 
 
 # Insert wallet once or refresh existing wallet seed/network.
@@ -231,25 +276,168 @@ def _handshake_amount_xrp() -> float:
     )
 
 
+# Convert short issued-currency code to 160-bit XRPL hex representation.
+def _currency_to_hex(currency: str) -> str:
+    return currency.encode("utf-8").hex().upper().ljust(40, "0")
+
+
+# Decode 160-bit XRPL currency hex into a readable code when possible.
+def _currency_from_hex(currency_hex: str) -> str:
+    if len(currency_hex) != 40:
+        return currency_hex
+    try:
+        raw = bytes.fromhex(currency_hex)
+        decoded = raw.rstrip(b"\x00").decode("utf-8")
+        return decoded or currency_hex
+    except Exception:
+        return currency_hex
+
+
+# Accept both ASCII and hex form for trust-line comparisons.
+def _matches_currency(line_currency: str, currency: str) -> bool:
+    return line_currency in {currency, _currency_to_hex(currency)}
+
+
+# Read account trust lines from XRPL.
+def _get_account_lines(address: str) -> list[dict[str, Any]]:
+    client = _get_xrpl_client()
+    result = client.request(AccountLines(account=address, ledger_index="validated")).result
+    return result.get("lines", [])
+
+
+# Read all issued-currency balances from trust lines for UI/dashboard use.
+def _get_issued_balances(address: str) -> list[dict[str, Any]]:
+    try:
+        lines = _get_account_lines(address)
+    except Exception:
+        return []
+
+    balances: list[dict[str, Any]] = []
+    for line in lines:
+        currency_raw = line.get("currency", "")
+        balance_raw = line.get("balance", "0")
+        try:
+            balance = float(balance_raw)
+        except (TypeError, ValueError):
+            balance = 0.0
+
+        balances.append(
+            {
+                "currency": _currency_from_hex(currency_raw),
+                "currency_raw": currency_raw,
+                "issuer": line.get("account"),
+                "balance": balance,
+            }
+        )
+    return balances
+
+
+# Read RLUSD balance with issuer fallback to avoid false zero from misconfiguration.
+def _get_rlusd_balance_info(address: str) -> dict[str, Any]:
+    try:
+        lines = _get_account_lines(address)
+    except Exception:
+        return {"balance": 0.0, "issuer": settings.RLUSD_ISSUER, "match_mode": "none"}
+
+    candidates = [
+        line
+        for line in lines
+        if _matches_currency(line.get("currency", ""), settings.RLUSD_CURRENCY)
+    ]
+    if not candidates:
+        return {"balance": 0.0, "issuer": settings.RLUSD_ISSUER, "match_mode": "none"}
+
+    configured_issuer = settings.RLUSD_ISSUER.strip()
+    if configured_issuer:
+        exact = [line for line in candidates if line.get("account") == configured_issuer]
+        if exact:
+            try:
+                return {
+                    "balance": float(exact[0].get("balance", "0")),
+                    "issuer": configured_issuer,
+                    "match_mode": "configured_issuer",
+                }
+            except (TypeError, ValueError):
+                return {"balance": 0.0, "issuer": configured_issuer, "match_mode": "configured_issuer"}
+
+    # Fallback when issuer env is not set or does not match current trust line.
+    try:
+        total = sum(Decimal(str(line.get("balance", "0"))) for line in candidates)
+        return {
+            "balance": float(total),
+            "issuer": candidates[0].get("account"),
+            "match_mode": "issuer_fallback",
+        }
+    except Exception:
+        return {"balance": 0.0, "issuer": settings.RLUSD_ISSUER, "match_mode": "issuer_fallback"}
+
+
 # Read RLUSD balance from trust lines.
 def _get_rlusd_balance(address: str) -> float:
+    return _get_rlusd_balance_info(address)["balance"]
+
+
+# Check whether wallet already has trust line for configured RLUSD issuer.
+def _has_rlusd_trustline(address: str) -> bool:
     if not settings.RLUSD_ISSUER:
-        return 0.0
+        return False
+    for line in _get_account_lines(address):
+        if _matches_currency(line.get("currency", ""), settings.RLUSD_CURRENCY) and line.get(
+            "account"
+        ) == settings.RLUSD_ISSUER:
+            return True
+    return False
 
+
+# Create RLUSD trust line for wallet if missing.
+def _ensure_rlusd_trustline(user_wallet: XRPLWallet) -> bool:
+    if _has_rlusd_trustline(user_wallet.classic_address):
+        return False
     client = _get_xrpl_client()
-    try:
-        result = client.request(AccountLines(account=address)).result
-    except Exception:
-        return 0.0
+    tx = TrustSet(
+        account=user_wallet.classic_address,
+        limit_amount=IssuedCurrencyAmount(
+            currency=_currency_to_hex(settings.RLUSD_CURRENCY),
+            issuer=settings.RLUSD_ISSUER,
+            value="1000000",
+        ),
+    )
+    submit_and_wait(tx, client, user_wallet)
+    return True
 
-    lines = result.get("lines", [])
-    for line in lines:
-        if line.get("currency") == settings.RLUSD_CURRENCY and line.get("account") == settings.RLUSD_ISSUER:
-            try:
-                return float(line.get("balance", "0"))
-            except ValueError:
-                return 0.0
-    return 0.0
+
+# Mint configured RLUSD from issuer wallet to destination wallet.
+def _mint_rlusd(destination_address: str, mint_amount: float) -> dict[str, Any]:
+    if not settings.RLUSD_ISSUER or not settings.RLUSD_ISSUER_SEED:
+        raise HTTPException(
+            status_code=400,
+            detail="RLUSD_ISSUER and RLUSD_ISSUER_SEED must be configured for RLUSD bootstrap.",
+        )
+    issuer_wallet = _wallet_from_seed(settings.RLUSD_ISSUER_SEED)
+    _assert_seed_matches_address(
+        settings.RLUSD_ISSUER_SEED,
+        settings.RLUSD_ISSUER.strip(),
+        "RLUSD_ISSUER",
+    )
+    client = _get_xrpl_client()
+    tx = Payment(
+        account=issuer_wallet.classic_address,
+        destination=destination_address,
+        amount=IssuedCurrencyAmount(
+            currency=_currency_to_hex(settings.RLUSD_CURRENCY),
+            issuer=settings.RLUSD_ISSUER,
+            value=_amount_to_string(mint_amount),
+        ),
+    )
+    try:
+        response = submit_and_wait(tx, client, issuer_wallet)
+        result = response.result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"RLUSD mint failed: {exc}") from exc
+
+    tx_hash = result.get("hash") or result.get("tx_json", {}).get("hash")
+    status = result.get("meta", {}).get("TransactionResult") or "unknown"
+    return {"tx_hash": tx_hash, "status": status, "raw_result": result}
 
 
 # Submit XRP payment and return summarized transaction metadata.
@@ -316,7 +504,7 @@ def _send_issued_payment(
     try:
         sender_wallet = _wallet_from_seed(sender_seed)
         issued_amount = IssuedCurrencyAmount(
-            currency=currency,
+            currency=_currency_to_hex(currency),
             issuer=issuer,
             value=_amount_to_string(amount),
         )
@@ -574,7 +762,7 @@ def health() -> dict[str, Any]:
     )
 
 
-# Create a new testnet wallet and optionally fund with faucet.
+# Create a new network wallet and optionally fund with faucet.
 @router.post("/wallets/create", response_model=ApiResponse)
 def create_wallet(db: Session = Depends(get_db)) -> dict[str, Any]:
     client = _get_xrpl_client()
@@ -589,7 +777,8 @@ def create_wallet(db: Session = Depends(get_db)) -> dict[str, Any]:
             last_error = None
             for _ in range(attempts):
                 try:
-                    wallet = generate_faucet_wallet(client)
+                    faucet_host = settings.XRPL_FAUCET_URL.strip() or None
+                    wallet = generate_faucet_wallet(client, faucet_host=faucet_host)
                     funded = True
                     break
                 except Exception as exc:
@@ -636,6 +825,46 @@ def import_wallet(payload: WalletImportRequest, db: Session = Depends(get_db)) -
     )
 
 
+# Bootstrap RLUSD readiness: trust line + mint for an imported wallet.
+@router.post("/wallets/bootstrap-rlusd", response_model=ApiResponse)
+def bootstrap_rlusd_wallet(
+    payload: BootstrapRlusdRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    user_wallet = _wallet_from_seed(payload.user_seed)
+    _save_or_get_wallet(db, user_wallet.classic_address, payload.user_seed)
+
+    trustline_created = _ensure_rlusd_trustline(user_wallet)
+    mint_result = _mint_rlusd(user_wallet.classic_address, payload.mint_amount)
+    balance = _get_rlusd_balance(user_wallet.classic_address)
+
+    _record_history(
+        db,
+        user_wallet_address=user_wallet.classic_address,
+        event_type="rlusd_bootstrap",
+        tx_hash=mint_result["tx_hash"],
+        counterparty_address=settings.RLUSD_ISSUER,
+        amount=payload.mint_amount,
+        currency=settings.RLUSD_CURRENCY,
+        status=mint_result["status"],
+        note="Trustline setup and mint bootstrap",
+    )
+    db.commit()
+
+    return _success(
+        "RLUSD bootstrap completed",
+        {
+            "address": user_wallet.classic_address,
+            "trustline_created": trustline_created,
+            "mint_tx_hash": mint_result["tx_hash"],
+            "mint_status": mint_result["status"],
+            "rlusd_balance": balance,
+            "rlusd_currency": settings.RLUSD_CURRENCY,
+            "rlusd_issuer": settings.RLUSD_ISSUER,
+        },
+    )
+
+
 # List all known wallets in local SQLite.
 @router.get("/wallets", response_model=ApiResponse)
 def list_wallets(db: Session = Depends(get_db)) -> dict[str, Any]:
@@ -668,16 +897,27 @@ def get_wallet_balance(address: str) -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Balance lookup failed: {exc}") from exc
 
-    drops = result.get("account_data", {}).get("Balance")
+    # Unfunded accounts may return no account_data; normalize to zeros for UI.
+    account_data = result.get("account_data", {})
+    drops = account_data.get("Balance")
+    account_exists = bool(account_data)
+    if drops is None:
+        drops = "0"
+
+    rlusd_info = _get_rlusd_balance_info(address)
     return _success(
         "Wallet balance",
         {
             "address": address,
             "balance_xrp": _drops_to_xrp_float(drops),
             "balance_drops": drops,
-            "rlusd_balance": _get_rlusd_balance(address),
+            "account_exists": account_exists,
+            "rlusd_balance": rlusd_info["balance"],
             "rlusd_currency": settings.RLUSD_CURRENCY,
-            "rlusd_issuer": settings.RLUSD_ISSUER,
+            "rlusd_issuer": rlusd_info["issuer"] or settings.RLUSD_ISSUER,
+            "rlusd_match_mode": rlusd_info["match_mode"],
+            "rlusd_ready": bool(settings.RLUSD_ISSUER),
+            "issued_balances": _get_issued_balances(address),
             "ledger_index": result.get("ledger_index"),
         },
     )
@@ -959,12 +1199,13 @@ def service_approve_subscription_handshake(
     if row.service_approval_tx_hash:
         return _success("Service already approved handshake", _subscription_to_dict(row))
 
-    merchant_wallet = _wallet_from_seed(payload.merchant_seed)
+    service_seed = _resolve_service_seed(payload.merchant_seed)
+    merchant_wallet = _wallet_from_seed(service_seed)
     if merchant_wallet.classic_address != row.merchant_wallet_address:
         raise HTTPException(status_code=400, detail="Provided seed does not match merchant wallet")
 
     approval_result = _send_xrp_payment(
-        sender_seed=payload.merchant_seed,
+        sender_seed=service_seed,
         destination_address=row.user_wallet_address,
         amount_xrp=_handshake_amount_xrp(),
         tx_type="subscription_handshake_service",
@@ -1053,9 +1294,7 @@ def process_subscription(
         raise HTTPException(status_code=409, detail="Subscription handshake is not fully approved")
 
     if bool(row.use_escrow):
-        merchant_seed = payload.merchant_seed if payload else None
-        if not merchant_seed:
-            raise HTTPException(status_code=400, detail="merchant_seed is required for escrow release")
+        merchant_seed = _resolve_service_seed(payload.merchant_seed if payload else None)
 
         release_result = _finish_subscription_escrow(db, row, merchant_seed)
         _lock_subscription_escrow(db, row)

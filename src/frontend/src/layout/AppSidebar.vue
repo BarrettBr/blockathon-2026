@@ -20,7 +20,7 @@ const layout = useLayoutStore();
 
     <AppMenu />
 
-    <div class="footer">XRPL Testnet</div>
+    <div class="footer">XRPL Devnet</div>
   </aside>
 </template>
 

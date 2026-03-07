@@ -58,6 +58,19 @@ def test_health_ok(client, monkeypatch):
     assert payload["xrpl_ready"] is True
 
 
+def test_cors_preflight_wallet_import(client):
+    response = client.options(
+        "/api/v1/wallets/import",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
 def test_wallet_import_and_list(client, monkeypatch):
     monkeypatch.setattr(
         api_module,
@@ -72,6 +85,41 @@ def test_wallet_import_and_list(client, monkeypatch):
     list_resp = client.get("/api/v1/wallets")
     assert list_resp.status_code == 200
     assert len(list_resp.json()["data"]) == 1
+
+
+def test_wallet_balance_uses_issuer_fallback_when_config_mismatch(client, monkeypatch):
+    class DummyClient:
+        def request(self, req):
+            req_name = req.__class__.__name__
+            if req_name == "AccountInfo":
+                return SimpleNamespace(
+                    result={"account_data": {"Balance": "1000000"}, "ledger_index": 123}
+                )
+            if req_name == "AccountLines":
+                return SimpleNamespace(
+                    result={
+                        "lines": [
+                            {"currency": "RLUSD", "account": "rACTUALISSUER111", "balance": "42.5"}
+                        ]
+                    }
+                )
+            return SimpleNamespace(result={})
+
+    monkeypatch.setattr(api_module, "_is_valid_classic_address", lambda _address: True)
+    monkeypatch.setattr(api_module, "_get_xrpl_client", lambda: DummyClient())
+
+    original_issuer = api_module.settings.RLUSD_ISSUER
+    object.__setattr__(api_module.settings, "RLUSD_ISSUER", "rMISCONFIGUREDISSUER")
+    try:
+        response = client.get("/api/v1/wallets/rTESTUSER1111111111111111111111111/balance")
+    finally:
+        object.__setattr__(api_module.settings, "RLUSD_ISSUER", original_issuer)
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["rlusd_balance"] == 42.5
+    assert payload["rlusd_match_mode"] == "issuer_fallback"
+    assert payload["issued_balances"][0]["currency"] == "RLUSD"
 
 
 def test_subscription_handshake_escrow_and_process_flow(client, monkeypatch):

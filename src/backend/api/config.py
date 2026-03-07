@@ -12,16 +12,24 @@ class Settings:
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8000"))
     DEBUG: bool = os.getenv("DEBUG", "true").lower() in {"1", "true", "yes"}
+    CORS_ALLOW_ORIGINS: str = os.getenv(
+        "CORS_ALLOW_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000",
+    )
 
     SQLITE_URL: str = os.getenv("SQLITE_URL", "sqlite:///./equipay.db")
 
     XRPL_RPC_URL: str = os.getenv(
         "XRPL_RPC_URL",
-        "https://s.altnet.rippletest.net:51234",
+        "https://s.devnet.rippletest.net:51234",
     )
-    XRPL_NETWORK: str = os.getenv("XRPL_NETWORK", "testnet")
+    XRPL_NETWORK: str = os.getenv("XRPL_NETWORK", "devnet")
+    XRPL_FAUCET_URL: str = os.getenv("XRPL_FAUCET_URL", "https://faucet.devnet.rippletest.net")
     RLUSD_CURRENCY: str = os.getenv("RLUSD_CURRENCY", "RLUSD")
     RLUSD_ISSUER: str = os.getenv("RLUSD_ISSUER", "")
+    RLUSD_ISSUER_SEED: str = os.getenv("RLUSD_ISSUER_SEED", "")
+    OPERATOR_WALLET_ADDRESS: str = os.getenv("OPERATOR_WALLET_ADDRESS", "")
+    OPERATOR_WALLET_SEED: str = os.getenv("OPERATOR_WALLET_SEED", "")
     AUTO_FUND_NEW_WALLETS: bool = os.getenv("AUTO_FUND_NEW_WALLETS", "true").lower() in {
         "1",
         "true",

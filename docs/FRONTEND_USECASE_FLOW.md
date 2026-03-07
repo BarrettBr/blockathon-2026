@@ -19,7 +19,7 @@ User already has a wallet created elsewhere and wants to connect it.
 ### Body
 ```json
 {
-  "seed": "sEd..."
+  "seed": "sEdExampleUserSecretValue"
 }
 ```
 
@@ -42,7 +42,7 @@ Use this balance response in dashboard cards:
 Body:
 ```json
 {
-  "sender_seed": "sEd...",
+  "sender_seed": "sEdExampleUserSecretValue",
   "destination_address": "r...",
   "amount_xrp": 0.5
 }
@@ -54,7 +54,7 @@ Body:
 Body:
 ```json
 {
-  "sender_seed": "sEd...",
+  "sender_seed": "sEdExampleUserSecretValue",
   "destination_address": "r...",
   "amount": 9.99
 }
@@ -74,7 +74,7 @@ Body (escrow mode enabled):
 {
   "user_wallet_address": "rUSER...",
   "merchant_wallet_address": "rMERCHANT...",
-  "user_seed": "sEdUser...",
+  "user_seed": "sEdExampleUserSecretValue",
   "amount_xrp": 1.25,
   "interval_days": 30,
   "use_escrow": true
@@ -89,7 +89,7 @@ Save returned `id` as `subscription_id`.
 Body:
 ```json
 {
-  "user_seed": "sEdUser..."
+  "user_seed": "sEdExampleUserSecretValue"
 }
 ```
 
@@ -99,9 +99,10 @@ Body:
 Body:
 ```json
 {
-  "merchant_seed": "sEdMerchant..."
+  "merchant_seed": "sEdExampleMerchantSecretValue"
 }
 ```
+(If backend has `OPERATOR_WALLET_SEED`, frontend may omit merchant seed.)
 
 After both approvals:
 - `status` becomes `active`
@@ -110,12 +111,13 @@ After both approvals:
 ## 3D) Process cycle payment
 `POST /subscriptions/{subscription_id}/process`
 
-For escrow subscriptions, merchant seed is required:
+For escrow subscriptions, merchant seed is used:
 ```json
 {
-  "merchant_seed": "sEdMerchant..."
+  "merchant_seed": "sEdExampleMerchantSecretValue"
 }
 ```
+If backend has `OPERATOR_WALLET_SEED`, body can be empty.
 
 For non-escrow subscriptions (`use_escrow=false`), body can be empty.
 
@@ -166,4 +168,3 @@ Use these to populate dashboard widgets and history screens.
 - `404`: subscription/tx not found
 - `409`: subscription not active, cancelled, or handshake incomplete
 - `500`: server/XRPL failure
-
