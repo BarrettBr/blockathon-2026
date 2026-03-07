@@ -81,12 +81,14 @@ onMounted(refreshList);
 
       <div class="row-actions">
         <button class="compact" @click="createSnapshot">Create Snapshot</button>
-        <button class="compact secondary" @click="refreshList">Refresh List</button>
       </div>
     </article>
 
     <article class="panel">
-      <h3>Snapshot List</h3>
+      <div class="panel-header">
+        <h3>Snapshot List</h3>
+        <button class="compact secondary" @click="refreshList">Refresh</button>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -147,6 +149,14 @@ onMounted(refreshList);
   border-radius: 14px;
   padding: 1rem;
 }
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.7rem;
+}
+.panel-header h3 { margin: 0; }
 h3 + p { color: #284a73; }
 h3 { margin: 0 0 0.7rem; color: #1f467d; }
 label { display: block; color: #47678f; font-size: 0.86rem; margin-top: 0.45rem; }

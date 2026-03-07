@@ -10,7 +10,7 @@ interface MenuItem {
 
 const props = defineProps<{ item: MenuItem }>();
 const route = useRoute();
-const expanded = ref(true);
+const expanded = ref(false);
 
 const active = computed(() => !!props.item.to && route.path === props.item.to);
 const hasChildren = computed(() => !!props.item.children?.length);
