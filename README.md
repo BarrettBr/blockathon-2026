@@ -76,6 +76,15 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Makefile Quick Commands
+```bash
+make setup
+make backend
+make frontend
+make test
+make test-integration
+```
+
 ## Environment Variables
 Defaults are already set in `src/backend/api/config.py`.
 

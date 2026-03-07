@@ -1,122 +1,82 @@
-<!-- Name: Sidebar
-Description: This is the sidebar for the application that lets you navigate
-Programmers: Adam Berry 
-Creation Date: 2/25
-Revision Dates: 3/1
-Preconditions: Not Relevant
-Postconditions: Not Relevant
-Error Types: Not Relevant
-Invariants: Dependencies described in /Docs/web.md
-Known Faults: None
--->
 <script setup lang="ts">
 import AppMenu from "./AppMenu.vue";
-import Divider from "primevue/divider";
 import { useLayoutStore } from "@/stores/layout";
 
 const layout = useLayoutStore();
 </script>
 
 <template>
-	<aside
-		class="layout-sidebar"
-		:class="{
-			'sidebar-collapsed': !layout.sidebarOpen,
-			'sidebar-mobile-open': layout.mobileMenuOpen,
-		}"
-	>
-		<div class="sidebar-header">
-			<div class="sidebar-logo">
-				<i class="pi pi-chart-bar logo-icon" />
-				<span class="logo-text">Sentinel</span>
-			</div>
-		</div>
+  <aside
+    class="sidebar"
+    :class="{
+      collapsed: !layout.sidebarOpen,
+      mobileOpen: layout.mobileMenuOpen,
+    }"
+  >
+    <div class="brand">
+      <div class="logo">EP</div>
+      <div class="wordmark">EquiPay</div>
+    </div>
 
-		<Divider class="sidebar-divider" />
+    <AppMenu />
 
-		<div class="sidebar-menu-wrap">
-			<AppMenu />
-		</div>
-
-		<!-- Bottom: version info -->
-		<div class="sidebar-footer">
-			<span class="sidebar-version">v0.2.3</span>
-			<span class="sidebar-version"><br />Favicon by Icons8</span>
-		</div>
-	</aside>
+    <div class="footer">XRPL Testnet</div>
+  </aside>
 </template>
 
 <style scoped>
-.layout-sidebar {
-	position: fixed;
-	top: 0;
-	left: 0;
-	width: 260px;
-	height: 100vh;
-	background-color: var(--p-surface-0);
-	border-right: 1px solid var(--p-surface-200);
-	display: flex;
-	flex-direction: column;
-	z-index: 999;
-	transition:
-		transform 0.3s ease,
-		width 0.3s ease;
-	overflow: hidden;
+.sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: 260px;
+  background: linear-gradient(180deg, #f7fbff 0%, #edf4ff 100%);
+  border-right: 1px solid #d8e6ff;
+  padding: 1rem;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 1rem;
+  z-index: 20;
+  transition: transform 0.2s ease;
 }
 
-.sidebar-header {
-	padding: 1.25rem 1rem;
-	flex-shrink: 0;
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.2rem 0.4rem;
 }
 
-.sidebar-logo {
-	display: flex;
-	align-items: center;
-	gap: 0.75rem;
+.logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(145deg, #2563eb, #1f57c8);
+  color: white;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  font-size: 0.72rem;
 }
 
-.logo-icon {
-	font-size: 1.5rem;
-	color: var(--p-primary-color);
+.wordmark {
+  font-weight: 800;
+  color: #20436f;
+  font-size: 1.2rem;
 }
 
-.logo-text {
-	font-size: 1.1rem;
-	font-weight: 700;
-	color: var(--p-surface-900);
-	letter-spacing: -0.02em;
+.footer {
+  font-size: 0.78rem;
+  color: #6382ab;
+  padding: 0.3rem;
 }
 
-.sidebar-divider {
-	margin: 0 !important;
-}
-
-.sidebar-menu-wrap {
-	flex: 1;
-	overflow-y: auto;
-	overflow-x: hidden;
-	padding: 0.25rem 0;
-}
-
-.sidebar-footer {
-	padding: 0.75rem 1.25rem;
-	border-top: 1px solid var(--p-surface-200);
-	flex-shrink: 0;
-}
-
-.sidebar-version {
-	font-size: 0.75rem;
-	color: var(--p-surface-400);
-}
-
-/* Mobile: sidebar off screen by default, slides in */
 @media (max-width: 991px) {
-	.layout-sidebar {
-		transform: translateX(-100%);
-	}
+  .sidebar {
+    transform: translateX(-100%);
+  }
 
-	.layout-sidebar.sidebar-mobile-open {
-		transform: translateX(0);
-	}
+  .sidebar.mobileOpen {
+    transform: translateX(0);
+  }
 }
 </style>
