@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import sys
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 import pytest
 from sqlalchemy import create_engine
@@ -256,6 +257,67 @@ def test_send_payment_records_transaction(client, monkeypatch):
     list_resp = client.get("/api/v1/payments")
     assert list_resp.status_code == 200
     assert any(row["tx_hash"] == "TX-PAY-1" for row in list_resp.json()["data"])
+
+
+def test_send_xrp_payment_surfaces_non_success_status(monkeypatch):
+    monkeypatch.setattr(api_module, "_is_valid_classic_address", lambda _address: True)
+    monkeypatch.setattr(
+        api_module,
+        "_wallet_from_seed",
+        lambda _seed: SimpleNamespace(classic_address="rSRC1111111111111111111111111111"),
+    )
+    monkeypatch.setattr(api_module, "_get_xrpl_client", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        api_module,
+        "submit_and_wait",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            result={
+                "hash": "TX-FAIL-1",
+                "meta": {"TransactionResult": "tecUNFUNDED_PAYMENT"},
+            }
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        api_module._send_xrp_payment(
+            sender_seed="seed-123",
+            destination_address="rDST1111111111111111111111111111",
+            amount_xrp=1.0,
+        )
+    assert exc.value.status_code == 400
+    assert "tecUNFUNDED_PAYMENT" in exc.value.detail
+
+
+def test_send_issued_payment_surfaces_path_dry(monkeypatch):
+    monkeypatch.setattr(api_module, "_is_valid_classic_address", lambda _address: True)
+    monkeypatch.setattr(
+        api_module,
+        "_wallet_from_seed",
+        lambda _seed: SimpleNamespace(classic_address="rSRC1111111111111111111111111111"),
+    )
+    monkeypatch.setattr(api_module, "_get_xrpl_client", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        api_module,
+        "submit_and_wait",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            result={
+                "hash": "TX-FAIL-2",
+                "meta": {"TransactionResult": "tecPATH_DRY"},
+            }
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        api_module._send_issued_payment(
+            sender_seed="seed-123",
+            destination_address="rDST1111111111111111111111111111",
+            amount=10,
+            currency="RLUSD",
+            issuer="rISSUER1111111111111111111111111111",
+            tx_type="payment_rlusd",
+        )
+    assert exc.value.status_code == 400
+    assert "tecPATH_DRY" in exc.value.detail
 
 
 def test_dashboard_spending_guard_and_history(client, monkeypatch):

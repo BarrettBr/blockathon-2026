@@ -104,7 +104,7 @@ def _is_valid_classic_address(address: str) -> bool:
 
 # Convert XRP decimal amount to drops string for XRPL transactions.
 def _xrp_to_drops(amount_xrp: float) -> str:
-    normalized = format(Decimal(str(amount_xrp)).quantize(Decimal("0.000001")), "f")
+    normalized = Decimal(str(amount_xrp)).quantize(Decimal("0.000001"))
     return xrp_to_drops(normalized)
 
 
@@ -472,6 +472,8 @@ def _send_xrp_payment(
 
     tx_hash = result.get("hash") or result.get("tx_json", {}).get("hash")
     tx_status = result.get("meta", {}).get("TransactionResult") or result.get("engine_result") or "unknown"
+    if not str(tx_status).startswith("tes"):
+        raise HTTPException(status_code=400, detail=f"Payment failed with XRPL status: {tx_status}")
 
     return {
         "tx_hash": tx_hash,
@@ -520,6 +522,17 @@ def _send_issued_payment(
 
     tx_hash = result.get("hash") or result.get("tx_json", {}).get("hash")
     tx_status = result.get("meta", {}).get("TransactionResult") or result.get("engine_result") or "unknown"
+    if tx_status == "tecPATH_DRY":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Issued payment failed with tecPATH_DRY. "
+                "Destination trust line may be missing, sender balance may be insufficient, "
+                "or no valid path exists for issuer/currency."
+            ),
+        )
+    if not str(tx_status).startswith("tes"):
+        raise HTTPException(status_code=400, detail=f"Issued payment failed with XRPL status: {tx_status}")
 
     return {
         "tx_hash": tx_hash,

@@ -3,10 +3,15 @@
 from dataclasses import dataclass
 import os
 from pathlib import Path
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except Exception:  # pragma: no cover - optional dependency
+    load_dotenv = None
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
-load_dotenv(dotenv_path=BASE_DIR / ".env")
+if load_dotenv:
+    load_dotenv(dotenv_path=BASE_DIR / ".env")
 
 
 @dataclass(frozen=True)
