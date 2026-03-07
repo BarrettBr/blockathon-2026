@@ -73,7 +73,10 @@ async function sendRlusd() {
     <article class="panel">
       <h3>Connect Wallet</h3>
       <label>Existing Wallet Seed</label>
-      <input v-model="seedInput" placeholder="sEd..." />
+      <input
+        v-model="seedInput"
+        placeholder="sEd7xJ9v8mExampleWalletSeedForImportOnly"
+      />
       <button @click="connectWallet" :disabled="loading">Connect</button>
 
       <div class="meta">Selected: {{ selectedAddress || "None" }}</div>
@@ -84,7 +87,10 @@ async function sendRlusd() {
     <article class="panel">
       <h3>Send Money</h3>
       <label>Destination Address</label>
-      <input v-model="destination" placeholder="r..." />
+      <input
+        v-model="destination"
+        placeholder="rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh"
+      />
 
       <label>XRP Amount</label>
       <input v-model.number="xrpAmount" type="number" min="0.000001" step="0.000001" />
@@ -108,7 +114,7 @@ async function sendRlusd() {
   padding: 1rem;
   display: grid;
   gap: 0.55rem;
-  min-height: 260px;
+  align-content: start;
 }
 h3 { margin: 0 0 0.25rem; color: #1f467d; }
 label { color: #597aa6; font-size: 0.88rem; }
@@ -125,6 +131,8 @@ button {
   color: #fff;
   font-weight: 700;
   cursor: pointer;
+  width: fit-content;
+  justify-self: start;
 }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 .meta { color: #456998; font-size: 0.9rem; word-break: break-all; }

@@ -87,12 +87,15 @@ async function cancelSubscription(id: number) {
 
 <template>
   <section class="stack">
-    <article class="panel">
+    <article class="panel form-panel">
       <h3>Create Subscription</h3>
       <p>Connected user: <strong>{{ wallet.selectedWallet?.address || "None" }}</strong></p>
 
       <label>Merchant Wallet Address</label>
-      <input v-model="form.merchant_wallet_address" placeholder="r..." />
+      <input
+        v-model="form.merchant_wallet_address"
+        placeholder="rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe"
+      />
 
       <label>Amount XRP</label>
       <input v-model.number="form.amount_xrp" type="number" min="0.000001" step="0.000001" />
@@ -111,7 +114,10 @@ async function cancelSubscription(id: number) {
 
     <article class="panel">
       <h3>Process/Handshake Merchant Seed</h3>
-      <input v-model="merchantSeed" placeholder="sEdMerchant..." />
+      <input
+        v-model="merchantSeed"
+        placeholder="sEd9kL7h3mMerchantSeedExampleForHandshakeAndRelease"
+      />
     </article>
 
     <article class="panel">
@@ -160,15 +166,34 @@ async function cancelSubscription(id: number) {
   border-radius: 14px;
   padding: 1rem;
 }
+
+.form-panel {
+  display: grid;
+  gap: 0.55rem;
+  align-content: start;
+}
 h3 { margin: 0 0 0.7rem; color: #1f467d; }
 label { display: block; color: #597aa6; font-size: 0.88rem; margin-top: 0.5rem; }
-input {
+input:not([type="checkbox"]) {
   width: 100%;
   border: 1px solid #cfe0fb;
   border-radius: 10px;
   padding: 0.55rem 0.7rem;
 }
-.checkbox { display: flex; align-items: center; gap: 0.5rem; }
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+  margin-bottom: 0.2rem;
+  color: #466a98;
+}
+
+.checkbox input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  transform: scale(1);
+}
 button {
   margin-top: 0.7rem;
   border: none;
@@ -178,6 +203,9 @@ button {
   color: #fff;
   font-weight: 700;
   cursor: pointer;
+  width: fit-content;
+  justify-self: start;
+  align-self: start;
 }
 button.danger { background: #b42318; }
 .message { color: #28558e; min-height: 1rem; }

@@ -70,6 +70,10 @@ const layout = useLayoutStore();
   padding: 0.3rem;
 }
 
+:deep(.menu) {
+  align-self: start;
+}
+
 @media (max-width: 991px) {
   .sidebar {
     transform: translateX(-100%);

@@ -20,5 +20,8 @@ const items = [
 .menu {
   display: grid;
   gap: 0.25rem;
+  align-content: start;
+  justify-items: stretch;
+  grid-auto-rows: min-content;
 }
 </style>
