@@ -1,32 +1,64 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { ref, computed } from "vue";
 import { useLayoutStore } from "@/stores/layout";
 import { useWalletStore } from "@/stores/wallet";
+import Menu from "primevue/menu";
+import Button from "primevue/button";
 
 const layout = useLayoutStore();
 const wallet = useWalletStore();
+const menu = ref();
+
+const items = ref([
+  { label: 'My Profile', icon: 'pi pi-user' },
+  { label: 'Settings', icon: 'pi pi-cog' },
+  { separator: true },
+  { label: 'Logout', icon: 'pi pi-sign-out' }
+]);
+
+const toggleMenu = (event: Event) => {
+  menu.value.toggle(event);
+};
 
 const walletBalance = computed(() => {
   const value = wallet.balance?.rlusd_balance;
-  if (typeof value !== "number") return "--";
-  return value.toFixed(2);
+  return typeof value === "number" ? value.toFixed(2) : "--";
 });
 </script>
 
 <template>
   <header class="topbar">
     <button class="menu-btn" @click="layout.toggleSidebar">☰</button>
-
-    <div class="title">Consumer-Controlled Payments on XRPL</div>
+    <div class="title">EquiPay: Consumer Payments on XRPL</div>
 
     <div class="right">
       <div class="balance">Balance: {{ walletBalance }} RLUSD</div>
-      <div class="account">My Account</div>
+      
+      <Button 
+        label="My Account" 
+        icon="pi pi-chevron-down" 
+        iconPos="right" 
+        text 
+        class="account-btn"
+        @click="toggleMenu" 
+        aria-haspopup="true" 
+      />
+      <Menu ref="menu" :model="items" :popup="true" />
     </div>
   </header>
 </template>
 
 <style scoped>
+.account-btn {
+  color: #345f94 !important;
+  font-weight: 600 !important;
+  padding: 0.5rem 0.75rem !important;
+}
+
+.account-btn:hover {
+  background: #ebf3ff !important;
+}
+
 .topbar {
   height: 68px;
   border-bottom: 1px solid #d8e6ff;

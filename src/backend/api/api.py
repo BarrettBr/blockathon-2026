@@ -973,7 +973,7 @@ def send_payment(payload: PaymentSendRequest, db: Session = Depends(get_db)) -> 
 
 # Send RLUSD/issued-currency payment and persist to history.
 @router.post("/payments/send-rlusd", response_model=ApiResponse)
-def send_rlusd_payment(payload: RlusdPaymentSendRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+def send_rlusd_payment(payload: RlusdPaymentSendRequest, db: Session = Depends(get_db)):
     payment_result = _send_issued_payment(
         sender_seed=payload.sender_seed,
         destination_address=payload.destination_address,
