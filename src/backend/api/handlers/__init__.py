@@ -9,6 +9,7 @@ from handlers.snapshots import router as snapshots_router
 from handlers.subscriptions import router as subscriptions_router
 from handlers.wallets import router as wallets_router
 from handlers.auth import router as auth_router
+from handlers.ai import router as ai_router
 
 
 router = APIRouter()
@@ -19,3 +20,4 @@ router.include_router(subscriptions_router)
 router.include_router(dashboard_router)
 router.include_router(auth_router)
 router.include_router(snapshots_router)
+router.include_router(ai_router)

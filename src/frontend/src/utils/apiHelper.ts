@@ -140,6 +140,9 @@ export const apiHelper = {
 		getSpendingGuard: (userWalletAddress: string) =>
 	api.get<ApiEnvelope<any>>(`/spending-guard/${userWalletAddress}`),
 
+	aiReview: (payload: { wallet_addresses: string[]; days: number }) =>
+	api.post<ApiEnvelope<any>>("/ai/review", payload),
+
 	getHistory: (userWalletAddress: string, limit = 50) =>
 	api.get<ApiEnvelope<any[]>>(`/history/${userWalletAddress}?limit=${limit}`),
 
