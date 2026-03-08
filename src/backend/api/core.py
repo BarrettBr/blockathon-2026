@@ -23,9 +23,7 @@ from xrpl.models.requests import AccountInfo, AccountLines, ServerInfo, Tx
 from xrpl.models.transactions import (
     AccountSet,
     AccountSetAsfFlag,
-    EscrowCancel,
     EscrowCreate,
-    EscrowFinish,
     Memo,
     Payment,
     TrustSet,
@@ -257,27 +255,6 @@ def _assert_seed_matches_address(seed: str, expected_address: str, config_name: 
             status_code=500,
             detail=f"{config_name} does not match its configured seed.",
         )
-
-
-# Resolve merchant/operator seed for service actions.
-def _resolve_service_seed(explicit_seed: Optional[str]) -> str:
-    seed = (explicit_seed or "").strip()
-    if seed:
-        return seed
-
-    operator_seed = settings.OPERATOR_WALLET_SEED.strip()
-    if operator_seed:
-        _assert_seed_matches_address(
-            operator_seed,
-            settings.OPERATOR_WALLET_ADDRESS.strip(),
-            "OPERATOR_WALLET_ADDRESS",
-        )
-        return operator_seed
-
-    raise HTTPException(
-        status_code=400,
-        detail="merchant_seed is required unless OPERATOR_WALLET_SEED is configured.",
-    )
 
 
 # Insert wallet once or refresh existing wallet seed/network.
@@ -824,18 +801,6 @@ def _get_rlusd_balance(address: str) -> float:
     return _get_rlusd_balance_info(address)["balance"]
 
 
-# Check whether wallet already has trust line for configured RLUSD issuer.
-def _has_rlusd_trustline(address: str) -> bool:
-    if not settings.RLUSD_ISSUER:
-        return False
-    for line in _get_account_lines(address):
-        if _matches_currency(line.get("currency", ""), settings.RLUSD_CURRENCY) and line.get(
-            "account"
-        ) == settings.RLUSD_ISSUER:
-            return True
-    return False
-
-
 # Create RLUSD trust line for wallet if missing.
 def _ensure_rlusd_trustline(user_wallet: XRPLWallet) -> bool:
     if user_wallet.classic_address == settings.RLUSD_ISSUER:
@@ -1010,183 +975,6 @@ def _send_issued_payment(
         "ledger_index": result.get("ledger_index"),
         "raw_result": result,
     }
-
-
-# Create an on-chain escrow lock for the next subscription cycle.
-def _lock_subscription_escrow(db: Session, row: Subscription, user_seed: str) -> dict[str, Any]:
-    client = _get_xrpl_client()
-    user_wallet = _wallet_from_seed(user_seed)
-    if user_wallet.classic_address != row.user_wallet_address:
-        raise HTTPException(status_code=400, detail="Stored user seed does not match subscription user wallet")
-
-    now = datetime.now(timezone.utc)
-    finish_after = datetime_to_ripple_time(now)
-    cancel_after = datetime_to_ripple_time(now + timedelta(days=row.interval_days))
-
-    memo = Memo(memo_data=_hex_text(f"SUBSCRIPTION_ESCROW_LOCK:{row.id}:{row.contract_hash}"))
-    tx = EscrowCreate(
-        account=row.user_wallet_address,
-        destination=row.merchant_wallet_address,
-        amount=_xrp_to_drops(row.amount_xrp),
-        finish_after=finish_after,
-        cancel_after=cancel_after,
-        memos=[memo],
-    )
-
-    try:
-        response = submit_and_wait(tx, client, user_wallet)
-        result = response.result
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Escrow lock failed: {exc}") from exc
-
-    tx_hash = result.get("hash") or result.get("tx_json", {}).get("hash")
-    offer_sequence = result.get("tx_json", {}).get("Sequence")
-    tx_status = result.get("meta", {}).get("TransactionResult") or "unknown"
-
-    row.escrow_amount_xrp = row.amount_xrp
-    row.escrow_offer_sequence = offer_sequence
-    row.escrow_create_tx_hash = tx_hash
-    row.escrow_status = "locked"
-    row.escrow_cancel_after = cancel_after
-    row.updated_at = datetime.now(timezone.utc)
-
-    db.add(
-        Transaction(
-            tx_hash=tx_hash,
-            tx_type="subscription_escrow_lock",
-            from_address=row.user_wallet_address,
-            to_address=row.merchant_wallet_address,
-            amount_xrp=row.amount_xrp,
-            status=tx_status,
-        )
-    )
-    _record_history(
-        db,
-        user_wallet_address=row.user_wallet_address,
-        event_type="subscription_escrow_lock",
-        tx_hash=tx_hash,
-        counterparty_address=row.merchant_wallet_address,
-        amount=row.amount_xrp,
-        currency="XRP",
-        status=tx_status,
-        note=f"Subscription {row.id} escrow lock created",
-    )
-    db.commit()
-    db.refresh(row)
-
-    return {"tx_hash": tx_hash, "offer_sequence": offer_sequence, "status": tx_status}
-
-
-# Release currently locked escrow for a subscription.
-def _finish_subscription_escrow(db: Session, row: Subscription, merchant_seed: str) -> dict[str, Any]:
-    if row.escrow_status != "locked" or not row.escrow_offer_sequence:
-        raise HTTPException(status_code=409, detail="No active locked escrow to release")
-
-    merchant_wallet = _wallet_from_seed(merchant_seed)
-    if merchant_wallet.classic_address != row.merchant_wallet_address:
-        raise HTTPException(status_code=400, detail="merchant_seed does not match merchant wallet")
-
-    client = _get_xrpl_client()
-    memo = Memo(memo_data=_hex_text(f"SUBSCRIPTION_ESCROW_RELEASE:{row.id}:{row.contract_hash}"))
-    tx = EscrowFinish(
-        account=row.merchant_wallet_address,
-        owner=row.user_wallet_address,
-        offer_sequence=row.escrow_offer_sequence,
-        memos=[memo],
-    )
-
-    try:
-        response = submit_and_wait(tx, client, merchant_wallet)
-        result = response.result
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Escrow release failed: {exc}") from exc
-
-    tx_hash = result.get("hash") or result.get("tx_json", {}).get("hash")
-    tx_status = result.get("meta", {}).get("TransactionResult") or "unknown"
-
-    row.last_tx_hash = tx_hash
-    row.next_payment_date = row.next_payment_date + timedelta(days=row.interval_days)
-    row.escrow_status = "released"
-    row.updated_at = datetime.now(timezone.utc)
-
-    db.add(
-        Transaction(
-            tx_hash=tx_hash,
-            tx_type="subscription_escrow_release",
-            from_address=row.user_wallet_address,
-            to_address=row.merchant_wallet_address,
-            amount_xrp=row.amount_xrp,
-            status=tx_status,
-        )
-    )
-    _record_history(
-        db,
-        user_wallet_address=row.user_wallet_address,
-        event_type="subscription_release",
-        tx_hash=tx_hash,
-        counterparty_address=row.merchant_wallet_address,
-        amount=row.amount_xrp,
-        currency="XRP",
-        status=tx_status,
-        note=f"Subscription {row.id} escrow released",
-    )
-    _apply_spending(db, row.user_wallet_address, row.amount_xrp, "XRP")
-    db.commit()
-    db.refresh(row)
-
-    return {"tx_hash": tx_hash, "status": tx_status}
-
-
-# Cancel currently locked escrow for a subscription.
-def _cancel_subscription_escrow(db: Session, row: Subscription, user_seed: str) -> dict[str, Any]:
-    if row.escrow_status != "locked" or not row.escrow_offer_sequence:
-        return {"status": "no_locked_escrow"}
-
-    user_wallet = _wallet_from_seed(user_seed)
-    client = _get_xrpl_client()
-    tx = EscrowCancel(
-        account=row.user_wallet_address,
-        owner=row.user_wallet_address,
-        offer_sequence=row.escrow_offer_sequence,
-    )
-
-    try:
-        response = submit_and_wait(tx, client, user_wallet)
-        result = response.result
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Escrow cancel failed: {exc}") from exc
-
-    tx_hash = result.get("hash") or result.get("tx_json", {}).get("hash")
-    tx_status = result.get("meta", {}).get("TransactionResult") or "unknown"
-
-    row.escrow_status = "cancelled"
-    row.updated_at = datetime.now(timezone.utc)
-
-    db.add(
-        Transaction(
-            tx_hash=tx_hash,
-            tx_type="subscription_escrow_cancel",
-            from_address=row.user_wallet_address,
-            to_address=row.user_wallet_address,
-            amount_xrp=row.escrow_amount_xrp or row.amount_xrp,
-            status=tx_status,
-        )
-    )
-    _record_history(
-        db,
-        user_wallet_address=row.user_wallet_address,
-        event_type="subscription_escrow_cancel",
-        tx_hash=tx_hash,
-        counterparty_address=row.merchant_wallet_address,
-        amount=row.escrow_amount_xrp or row.amount_xrp,
-        currency="XRP",
-        status=tx_status,
-        note=f"Subscription {row.id} escrow cancelled",
-    )
-    db.commit()
-    db.refresh(row)
-
-    return {"tx_hash": tx_hash, "status": tx_status}
 
 
 # Convert cycle ORM row into API response shape.
