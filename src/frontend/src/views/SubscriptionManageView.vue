@@ -203,6 +203,20 @@ function explorerTxUrl(txHash: string): string {
   return getExplorerTxUrl(txHash);
 }
 
+function subscriptionTxRows(row: any) {
+  const rows: Array<{ label: string; hash: string }> = [];
+  const escrowHash = String(row?.escrow_create_tx_hash || "").trim();
+  const paymentHash = String(row?.last_tx_hash || "").trim();
+
+  if (escrowHash) {
+    rows.push({ label: "Escrow", hash: escrowHash });
+  }
+  if (paymentHash && paymentHash !== escrowHash) {
+    rows.push({ label: "Payment", hash: paymentHash });
+  }
+  return rows;
+}
+
 </script>
 
 <template>
@@ -314,27 +328,32 @@ function explorerTxUrl(txHash: string): string {
 							<td>{{ s.amount_xrp }} RLUSD</td>
 							<td><span class="status-pill" :class="statusTone(s.escrow_status)">{{ formatStatusLabel(s.escrow_status) }}</span></td>
 							<td>
-								<div v-if="s.last_tx_hash" class="tx-box">
-									<input :value="s.last_tx_hash" readonly />
-									<button
-                    class="compact ghost icon-btn"
-                    title="Copy transaction hash"
-                    aria-label="Copy transaction hash"
-                    @click="copyText(s.last_tx_hash)"
-                  >
-                    <i class="pi pi-copy copy-icon"></i>
-                  </button>
-                  <a
-                    class="compact ghost link-btn icon-btn"
-                    :href="explorerTxUrl(s.last_tx_hash)"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Open on explorer"
-                    aria-label="Open on explorer"
-                  >
-                    <i class="pi pi-external-link"></i>
-                  </a>
-								</div>
+                <div v-if="subscriptionTxRows(s).length" class="tx-stack">
+                  <div v-for="tx in subscriptionTxRows(s)" :key="`${s.id}-${tx.label}-${tx.hash}`" class="tx-row">
+                    <span class="tx-label">{{ tx.label }}</span>
+                    <div class="tx-box">
+                      <input :value="tx.hash" readonly />
+                      <button
+                        class="compact ghost icon-btn"
+                        :title="`Copy ${tx.label.toLowerCase()} transaction hash`"
+                        :aria-label="`Copy ${tx.label.toLowerCase()} transaction hash`"
+                        @click="copyText(tx.hash)"
+                      >
+                        <i class="pi pi-copy copy-icon"></i>
+                      </button>
+                      <a
+                        class="compact ghost link-btn icon-btn"
+                        :href="explorerTxUrl(tx.hash)"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        :title="`Open ${tx.label.toLowerCase()} on explorer`"
+                        :aria-label="`Open ${tx.label.toLowerCase()} on explorer`"
+                      >
+                        <i class="pi pi-external-link"></i>
+                      </a>
+                    </div>
+                  </div>
+                </div>
 								<span v-else>-</span>
 							</td>
 							<td class="actions">
@@ -517,6 +536,21 @@ th, td {
 	align-items: center;
 	gap: 0.35rem;
 	max-width: 280px;
+}
+.tx-stack {
+  display: grid;
+  gap: 0.4rem;
+}
+.tx-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.tx-label {
+  min-width: 58px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 .tx-box input {
 	width: 210px;
