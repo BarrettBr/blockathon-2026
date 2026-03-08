@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onBeforeUnmount, onMounted, watch } from "vue";
 import { useLayoutStore } from "@/stores/layout";
 import { useWalletStore } from "@/stores/wallet";
 import Menu from "primevue/menu";
@@ -51,9 +51,17 @@ onMounted(async () => {
 watch(
   () => wallet.wallets.length,
   async () => {
-    await wallet.fetchAggregateBalance();
+    await wallet.fetchAggregateBalance(true);
   },
 );
+
+const balancePoll = window.setInterval(() => {
+  void wallet.fetchAggregateBalance(true);
+}, 2000);
+
+onBeforeUnmount(() => {
+  window.clearInterval(balancePoll);
+});
 </script>
 
 <template>

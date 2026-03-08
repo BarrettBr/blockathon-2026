@@ -1,5 +1,7 @@
 """Main app wiring and local run entrypoint."""
 
+import asyncio
+from contextlib import suppress
 from contextlib import asynccontextmanager
 import logging
 from pathlib import Path
@@ -12,8 +14,9 @@ from xrpl.asyncio.clients import AsyncJsonRpcClient
 from xrpl.models.requests import AccountInfo
 
 from api import router as api_router
+import core
 from config import settings
-from db import init_db
+from db import SessionLocal, init_db
 
 logger = logging.getLogger("equipay")
 
@@ -23,7 +26,39 @@ async def lifespan(_app: FastAPI):
     """Initialize resources once at startup."""
     init_db()
     await _check_issuer()
-    yield
+    scheduler_task = asyncio.create_task(_subscription_scheduler_loop())
+    try:
+        yield
+    finally:
+        scheduler_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await scheduler_task
+
+
+def _run_subscription_scheduler_tick() -> dict:
+    db = SessionLocal()
+    try:
+        return core.auto_process_due_subscription_cycles(db)
+    finally:
+        db.close()
+
+
+async def _subscription_scheduler_loop():
+    # Lightweight demo scheduler: process cycle release/creation ticks for short demo intervals.
+    while True:
+        try:
+            result = await asyncio.to_thread(_run_subscription_scheduler_tick)
+            if result.get("approved") or result.get("processed") or result.get("failed"):
+                logger.info(
+                    "Auto-processed subscriptions: approved=%s processed=%s skipped=%s failed=%s",
+                    result.get("approved", 0),
+                    result.get("processed", 0),
+                    result.get("skipped", 0),
+                    result.get("failed", 0),
+                )
+        except Exception as exc:
+            logger.warning("Subscription scheduler tick failed: %s", exc)
+        await asyncio.sleep(max(2, settings.AUTO_SUBSCRIPTION_TICK_SECONDS))
 
 
 async def _check_issuer():

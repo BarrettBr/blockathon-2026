@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed, onBeforeUnmount, watch } from "vue";
 import { useWalletStore } from "@/stores/wallet";
 import { useDashboardStore } from "@/stores/dashboard";
 
@@ -25,11 +25,14 @@ function formatDateLabel(value: string): string {
   if (!value) return "-";
   const dt = new Date(value);
   if (Number.isNaN(dt.getTime())) return value;
+  const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return dt.toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    second: "2-digit",
+    timeZone: localTimeZone,
   });
 }
 
@@ -171,6 +174,14 @@ watch(
   },
   { immediate: true },
 );
+
+const refreshTimer = window.setInterval(() => {
+  void load();
+}, 2000);
+
+onBeforeUnmount(() => {
+  window.clearInterval(refreshTimer);
+});
 </script>
 
 <template>

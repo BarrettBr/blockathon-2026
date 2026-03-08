@@ -12,7 +12,9 @@ from schemas import (
     ApiResponse,
     SubscriptionApproveRequest,
     SubscriptionCancelRequest,
+    SubscriptionClaimCycleRequest,
     SubscriptionProcessCycleRequest,
+    SubscriptionRefundCycleRequest,
     SubscriptionRequestCreateRequest,
     UserProfileRegisterRequest,
     VendorCreateRequest,
@@ -101,6 +103,30 @@ def process_subscription_cycle(
     current_user: UserProfileSchema = Depends(get_current_user),
 ):
     return core.process_subscription_cycle(subscription_id, payload, db)
+
+
+@router.post("/subscriptions/{subscription_id}/cycles/{cycle_id}/claim", response_model=ApiResponse)
+def claim_subscription_cycle(
+    subscription_id: int,
+    cycle_id: int,
+    payload: SubscriptionClaimCycleRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    return core.claim_subscription_cycle(subscription_id, cycle_id, payload, request, db)
+
+
+@router.post("/subscriptions/{subscription_id}/cycles/{cycle_id}/refund", response_model=ApiResponse)
+def refund_subscription_cycle(
+    subscription_id: int,
+    cycle_id: int,
+    payload: SubscriptionRefundCycleRequest,
+    db: Session = Depends(get_db),
+    current_user: UserProfileSchema = Depends(get_current_user),
+):
+    if not payload.username:
+        payload.username = current_user.username
+    return core.refund_subscription_cycle(subscription_id, cycle_id, payload, db)
 
 
 @router.get("/subscriptions/{subscription_id}", response_model=ApiResponse)

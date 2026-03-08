@@ -69,8 +69,20 @@ class Settings:
     GEMINI_API_BASE_URL: str = os.getenv("GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
     PUBLIC_API_BASE_URL: str = os.getenv("PUBLIC_API_BASE_URL", "http://127.0.0.1:8000")
     VENDOR_PHOTO_DIR: str = os.getenv("VENDOR_PHOTO_DIR", str(BASE_DIR / "src" / "backend" / "api" / "static" / "vendor-photos"))
-    SUBSCRIPTION_ESCROW_CLAIM_DELAY_SECONDS: int = int(os.getenv("SUBSCRIPTION_ESCROW_CLAIM_DELAY_SECONDS", "15"))
+    SUBSCRIPTION_ESCROW_CLAIM_DELAY_SECONDS: int = int(os.getenv("SUBSCRIPTION_ESCROW_CLAIM_DELAY_SECONDS", "3"))
     SUBSCRIPTION_ESCROW_REFUND_DAYS: int = int(os.getenv("SUBSCRIPTION_ESCROW_REFUND_DAYS", "2"))
+    SUBSCRIPTION_ESCROW_LOCK_XRP: float = float(os.getenv("SUBSCRIPTION_ESCROW_LOCK_XRP", "0.000001"))
+    AUTO_SUBSCRIPTION_TICK_SECONDS: int = int(os.getenv("AUTO_SUBSCRIPTION_TICK_SECONDS", "2"))
+    AUTO_RELEASE_SUBSCRIPTION_CYCLES: bool = os.getenv("AUTO_RELEASE_SUBSCRIPTION_CYCLES", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    DEMO_AUTO_APPROVE_SUBSCRIPTIONS: bool = os.getenv("DEMO_AUTO_APPROVE_SUBSCRIPTIONS", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
 
 
 settings = Settings()

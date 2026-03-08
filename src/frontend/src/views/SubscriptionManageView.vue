@@ -48,7 +48,7 @@ function shortAddress(value: string): string {
 
 function intervalLabel(row: any): string {
   const seconds = Number(row?.interval_seconds || 0);
-  if (Number.isFinite(seconds) && seconds >= 20 && seconds < 86400) {
+  if (Number.isFinite(seconds) && seconds >= 5 && seconds < 86400) {
     if (seconds % 3600 === 0) return `Every ${seconds / 3600} hour${seconds / 3600 === 1 ? "" : "s"}`;
     if (seconds % 60 === 0) return `Every ${seconds / 60} minute${seconds / 60 === 1 ? "" : "s"}`;
     return `Every ${seconds} second${seconds === 1 ? "" : "s"}`;

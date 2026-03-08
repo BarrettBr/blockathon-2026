@@ -120,6 +120,10 @@
 						<input id="cfg-secret" type="text" placeholder="your-shared-secret"/>
 					</div>
 					<div class="field">
+						<label>Vendor Seed (for auto-claim demo)</label>
+						<input id="cfg-vendor-seed" type="text" placeholder="sEd..."/>
+					</div>
+					<div class="field">
 						<label>Vendor Photo (optional)</label>
 						<input id="cfg-photo" type="file" accept="image/png,image/jpeg,image/webp"/>
 					</div>
@@ -148,13 +152,13 @@
 					<div class="field">
 						<label>Billing Cycle Speed (Demo)</label>
 						<select id="modal-cycle-speed">
-							<option value="20">20 seconds</option>
+							<option value="5" selected>5 seconds</option>
 							<option value="60">1 minute</option>
 							<option value="300">5 minutes</option>
 							<option value="3600">1 hour</option>
 							<option value="86400">1 day</option>
 							<option value="604800">7 days</option>
-							<option value="2592000" selected>30 days</option>
+							<option value="2592000">30 days</option>
 						</select>
 					</div>
 					<div class="field">
@@ -199,6 +203,7 @@
 		if (localStorage.getItem('nb_display_name')) document.getElementById('cfg-display-name').value = localStorage.getItem('nb_display_name');
 		if (localStorage.getItem('nb_wallet'))       document.getElementById('cfg-wallet').value = localStorage.getItem('nb_wallet');
 		if (localStorage.getItem('nb_secret'))       document.getElementById('cfg-secret').value = localStorage.getItem('nb_secret');
+		if (localStorage.getItem('nb_vendor_seed'))  document.getElementById('cfg-vendor-seed').value = localStorage.getItem('nb_vendor_seed');
 
 		function parseApiError(data, fallback) {
 			if (!data) return fallback;
@@ -223,12 +228,22 @@
 			const name   = document.getElementById('cfg-display-name').value.trim();
 			const wallet = document.getElementById('cfg-wallet').value.trim();
 			const secret = document.getElementById('cfg-secret').value.trim();
+			const vendorSeed = document.getElementById('cfg-vendor-seed').value.trim();
 
-			if (!code || !name || !wallet) { showStatus('Vendor code, display name, and wallet are required.', false); return; }
+			if (!code || !name || !wallet || !secret || !vendorSeed) {
+				showStatus('Vendor code, display name, wallet, shared secret, and vendor seed are required.', false);
+				return;
+			}
 
 			try {
-				const payload = { vendor_code: code, display_name: name, wallet_address: wallet };
-				if (secret) payload.shared_secret = secret;
+				const webhookUrl = `${window.location.origin}/webhook?vendor_secret=${encodeURIComponent(secret)}&vendor_seed=${encodeURIComponent(vendorSeed)}`;
+				const payload = {
+					vendor_code: code,
+					display_name: name,
+					wallet_address: wallet,
+					shared_secret: secret,
+					webhook_url: webhookUrl,
+				};
 				const resp = await fetch('/proxy/vendors/upsert', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
@@ -240,6 +255,7 @@
 				localStorage.setItem('nb_vendor_code', code);
 				localStorage.setItem('nb_display_name', name);
 				localStorage.setItem('nb_wallet', wallet);
+				localStorage.setItem('nb_vendor_seed', vendorSeed);
 				const finalSecret = (data?.data?.shared_secret || secret || '').trim();
 				localStorage.setItem('nb_secret', finalSecret);
 				document.getElementById('cfg-secret').value = finalSecret;
@@ -281,7 +297,8 @@
 
 		function openSubscribeModal(planName, amount, days) {
 			if (!vendorSecret) { alert('Set up your vendor credentials first (scroll to Vendor Setup).'); return; }
-			const seconds = Math.max(20, Number(days || 30) * 86400);
+			const selectedSeconds = Number(document.getElementById('modal-cycle-speed')?.value || 5);
+			const seconds = Math.min(2592000, Math.max(5, selectedSeconds));
 			currentPlan = { name: planName, amount, intervalSeconds: seconds };
 			document.getElementById('modal-plan-name').textContent  = planName;
 			document.getElementById('modal-plan-price').textContent = amount + ' RLUSD';
@@ -302,7 +319,7 @@
 
 		async function submitSubscription() {
 			const username = document.getElementById('modal-username').value.trim();
-			const cycleSeconds = Math.min(2592000, Math.max(20, Number(document.getElementById('modal-cycle-speed').value || currentPlan.intervalSeconds || 2592000)));
+			const cycleSeconds = Math.min(2592000, Math.max(5, Number(document.getElementById('modal-cycle-speed').value || currentPlan.intervalSeconds || 2592000)));
 			const btn      = document.getElementById('btn-confirm');
 
 			if (!username) { showModalError('Please enter your EquiPay username.'); return; }

@@ -6,6 +6,7 @@ import hashlib
 import json as _json
 import json
 import hmac
+import logging
 import math
 import secrets
 import uuid
@@ -26,13 +27,16 @@ from xrpl.models.requests import AccountInfo, AccountLines, ServerInfo, Tx
 from xrpl.models.transactions import (
     AccountSet,
     AccountSetAsfFlag,
+    EscrowCancel,
+    EscrowCreate,
+    EscrowFinish,
     Memo,
     Payment,
     TrustSet,
     TrustSetFlag,
 )
 from xrpl.transaction import submit_and_wait
-from xrpl.utils import xrp_to_drops
+from xrpl.utils import datetime_to_ripple_time, xrp_to_drops
 from xrpl.wallet import Wallet as XRPLWallet
 from xrpl.wallet import generate_faucet_wallet
 
@@ -61,7 +65,9 @@ from schemas import (
     SpendingGuardSetRequest,
     SubscriptionApproveRequest,
     SubscriptionCancelRequest,
+    SubscriptionClaimCycleRequest,
     SubscriptionProcessCycleRequest,
+    SubscriptionRefundCycleRequest,
     SubscriptionRequestCreateRequest,
     UserProfileRegisterRequest,
     VendorCreateRequest,
@@ -72,6 +78,15 @@ from schemas import (
 
 _DASHBOARD_AGGREGATE_CACHE_TTL_SECONDS = 4
 _dashboard_aggregate_cache: dict[int, tuple[datetime, dict[str, Any]]] = {}
+logger = logging.getLogger("equipay")
+
+
+def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 # Look up stored seed for a wallet address, raising clearly if missing.
 def _get_seed_for_address(db: Session, address: str) -> str:
@@ -191,6 +206,29 @@ def _generate_shared_secret() -> str:
 def _vendor_photo_url(filename: str) -> str:
     base = settings.PUBLIC_API_BASE_URL.rstrip("/")
     return f"{base}/static/vendor-photos/{filename}"
+
+
+def _normalize_vendor_webhook_url(webhook_url: Optional[str], requested_secret: str, final_secret: str) -> Optional[str]:
+    if not webhook_url:
+        return webhook_url
+    if not requested_secret or requested_secret == final_secret:
+        return webhook_url
+
+    parsed = urllib_parse.urlparse(webhook_url)
+    query = urllib_parse.parse_qs(parsed.query, keep_blank_values=True)
+    if "vendor_secret" not in query:
+        return webhook_url
+    query["vendor_secret"] = [final_secret]
+    return urllib_parse.urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            urllib_parse.urlencode(query, doseq=True),
+            parsed.fragment,
+        )
+    )
 
 
 # Build and sign a webhook event payload.
@@ -1113,11 +1151,11 @@ def _cycle_to_dict(row: SubscriptionCycle) -> dict[str, Any]:
 def _subscription_interval_seconds(row: Subscription) -> int:
     legacy = int(row.interval_days or 30) * 24 * 60 * 60
     value = int(row.interval_seconds or legacy)
-    return max(value, 20)
+    return max(value, 5)
 
 
-# Create a billing cycle and execute immediate RLUSD transfer for the cycle amount.
-def _create_subscription_cycle_with_payment(
+# Create a billing cycle and lock escrow on XRPL. Settlement occurs on claim.
+def _create_subscription_cycle_with_escrow(
     db: Session,
     subscription: Subscription,
     user_seed: str,
@@ -1128,41 +1166,83 @@ def _create_subscription_cycle_with_payment(
     user_wallet = _wallet_from_seed(user_seed)
     if user_wallet.classic_address != subscription.user_wallet_address:
         raise HTTPException(status_code=400, detail="Provided seed does not match subscription user wallet")
+    if not _is_valid_classic_address(subscription.merchant_wallet_address):
+        raise HTTPException(status_code=400, detail="Invalid merchant wallet address")
 
-    payment_result = _send_issued_payment(
-        sender_seed=user_seed,
-        destination_address=subscription.merchant_wallet_address,
-        amount=subscription.amount_xrp,
-        currency=settings.RLUSD_CURRENCY,
-        issuer=settings.RLUSD_ISSUER,
-        tx_type="subscription_cycle_payment_rlusd",
+    client = _get_xrpl_client()
+    now_utc = datetime.now(timezone.utc)
+    finish_after_dt = now_utc + timedelta(seconds=settings.SUBSCRIPTION_ESCROW_CLAIM_DELAY_SECONDS)
+    cancel_after_dt = now_utc + timedelta(days=settings.SUBSCRIPTION_ESCROW_REFUND_DAYS)
+
+    tx = EscrowCreate(
+        account=user_wallet.classic_address,
+        destination=subscription.merchant_wallet_address,
+        amount=_xrp_to_drops(settings.SUBSCRIPTION_ESCROW_LOCK_XRP),
+        finish_after=datetime_to_ripple_time(finish_after_dt),
+        cancel_after=datetime_to_ripple_time(cancel_after_dt),
+        memos=[
+            Memo(
+                memo_data=_hex_text(
+                    f"EQUIPAY|sub:{subscription.id}|cycle:{cycle_index}|amount_rlusd:{subscription.amount_xrp}"
+                )
+            )
+        ],
     )
-    tx_hash = payment_result["tx_hash"]
-    tx_status = payment_result["status"]
+    try:
+        response = submit_and_wait(tx, client, user_wallet)
+        result = response.result
+    except Exception as exc:
+        if "tecNO_PERMISSION" in str(exc):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Escrow create failed with tecNO_PERMISSION for destination "
+                    f"{subscription.merchant_wallet_address}. The vendor wallet likely blocks incoming deposits "
+                    f"(DepositAuth) or requires preauthorization."
+                ),
+            ) from exc
+        raise HTTPException(status_code=400, detail=f"Escrow create failed: {exc}") from exc
+
+    tx_hash = result.get("hash") or result.get("tx_json", {}).get("hash")
+    tx_status = result.get("meta", {}).get("TransactionResult") or result.get("engine_result") or "unknown"
+    if not str(tx_status).startswith("tes"):
+        if tx_status == "tecNO_PERMISSION":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Escrow create failed with tecNO_PERMISSION for destination "
+                    f"{subscription.merchant_wallet_address}. The vendor wallet likely blocks incoming deposits "
+                    f"(DepositAuth) or requires preauthorization."
+                ),
+            )
+        raise HTTPException(status_code=400, detail=f"Escrow create failed with XRPL status: {tx_status}")
+    escrow_sequence = result.get("tx_json", {}).get("Sequence")
 
     cycle_row = SubscriptionCycle(
         subscription_id=subscription.id,
         cycle_index=cycle_index,
         period_start=period_start,
         period_end=period_end,
-        status="released",
+        status="locked",
         escrow_amount_xrp=subscription.amount_xrp,
+        escrow_offer_sequence=escrow_sequence,
         escrow_create_tx_hash=tx_hash,
+        escrow_cancel_after=datetime_to_ripple_time(cancel_after_dt),
     )
     db.add(cycle_row)
 
     subscription.escrow_amount_xrp = subscription.amount_xrp
-    subscription.escrow_offer_sequence = None
+    subscription.escrow_offer_sequence = escrow_sequence
     subscription.escrow_create_tx_hash = tx_hash
-    subscription.escrow_status = "released"
-    subscription.escrow_cancel_after = None
+    subscription.escrow_status = "locked"
+    subscription.escrow_cancel_after = datetime_to_ripple_time(cancel_after_dt)
     subscription.last_tx_hash = tx_hash
     subscription.updated_at = datetime.now(timezone.utc)
 
     db.add(
         Transaction(
             tx_hash=tx_hash,
-            tx_type="subscription_cycle_payment_rlusd",
+            tx_type="subscription_cycle_escrow_lock",
             from_address=subscription.user_wallet_address,
             to_address=subscription.merchant_wallet_address,
             amount_xrp=0.0,
@@ -1172,19 +1252,40 @@ def _create_subscription_cycle_with_payment(
     _record_history(
         db,
         user_wallet_address=subscription.user_wallet_address,
-        event_type="subscription_release",
+        event_type="subscription_cycle_escrow_lock",
         tx_hash=tx_hash,
         counterparty_address=subscription.merchant_wallet_address,
         amount=subscription.amount_xrp,
         currency=settings.RLUSD_CURRENCY,
         status=tx_status,
-        note=f"Subscription {subscription.id} cycle {cycle_index} paid in {settings.RLUSD_CURRENCY}",
+        note=(
+            f"Cycle escrow locked; claim after {settings.SUBSCRIPTION_ESCROW_CLAIM_DELAY_SECONDS}s "
+            f"or refund after {settings.SUBSCRIPTION_ESCROW_REFUND_DAYS}d."
+        ),
     )
-    _apply_spending(db, subscription.user_wallet_address, subscription.amount_xrp, settings.RLUSD_CURRENCY)
     db.commit()
     db.refresh(cycle_row)
     db.refresh(subscription)
     return cycle_row
+
+
+def _create_subscription_cycle_with_payment(
+    db: Session,
+    subscription: Subscription,
+    user_seed: str,
+    cycle_index: int,
+    period_start: datetime,
+    period_end: datetime,
+) -> SubscriptionCycle:
+    # Backward-compatible alias used by older call sites/tests.
+    return _create_subscription_cycle_with_escrow(
+        db=db,
+        subscription=subscription,
+        user_seed=user_seed,
+        cycle_index=cycle_index,
+        period_start=period_start,
+        period_end=period_end,
+    )
 
 
 # Convert subscription ORM row to API-friendly response object.
@@ -1805,7 +1906,8 @@ def upsert_vendor(payload: VendorCreateRequest, db: Session) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Invalid wallet_address")
 
     row = db.query(Vendor).filter(Vendor.vendor_code == payload.vendor_code).first()
-    shared_secret = (payload.shared_secret or "").strip() or _generate_shared_secret()
+    requested_secret = (payload.shared_secret or "").strip()
+    shared_secret = requested_secret or _generate_shared_secret()
 
     # SQLite schema currently enforces unique shared_secret. For hackathon UX, avoid hard failures:
     # - update: if requested secret is already used by another vendor, keep current vendor secret
@@ -1816,10 +1918,11 @@ def upsert_vendor(payload: VendorCreateRequest, db: Session) -> dict[str, Any]:
     duplicate_vendor = duplicate_q.first()
     if duplicate_vendor:
         shared_secret = row.shared_secret if row else _generate_shared_secret()
+    webhook_url = _normalize_vendor_webhook_url(payload.webhook_url, requested_secret, shared_secret)
     if row:
         row.display_name = payload.display_name
         row.wallet_address = payload.wallet_address
-        row.webhook_url = payload.webhook_url
+        row.webhook_url = webhook_url
         row.vendor_photo_url = payload.vendor_photo_url
         row.shared_secret = shared_secret
         row.is_active = True
@@ -1855,7 +1958,7 @@ def upsert_vendor(payload: VendorCreateRequest, db: Session) -> dict[str, Any]:
         display_name=payload.display_name,
         wallet_address=payload.wallet_address,
         shared_secret=shared_secret,
-        webhook_url=payload.webhook_url,
+        webhook_url=webhook_url,
         vendor_photo_url=payload.vendor_photo_url,
         is_active=True,
     )
@@ -1866,6 +1969,7 @@ def upsert_vendor(payload: VendorCreateRequest, db: Session) -> dict[str, Any]:
         db.rollback()
         # One more fallback in case of race/collision: auto-generate and retry once.
         row.shared_secret = _generate_shared_secret()
+        row.webhook_url = _normalize_vendor_webhook_url(row.webhook_url, requested_secret, row.shared_secret)
         db.add(row)
         try:
             db.commit()
@@ -2058,9 +2162,9 @@ def create_subscription_request(
         start_date=now_utc,
         next_payment_date=now_utc,
         auto_renew=True,
-        use_escrow=0,
+        use_escrow=1,
         escrow_amount_xrp=payload.amount_xrp,
-        escrow_status="released",
+        escrow_status="not_started",
     )
     db.add(row)
     db.commit()
@@ -2158,9 +2262,10 @@ def approve_subscription_request(
     if expected_hash != row.contract_hash:
         raise HTTPException(status_code=400, detail="Contract hash mismatch")
 
-    first_cycle_start = row.start_date
+    approved_at = datetime.now(timezone.utc)
+    first_cycle_start = approved_at
     first_cycle_end = first_cycle_start + timedelta(seconds=_subscription_interval_seconds(row))
-    cycle_row = _create_subscription_cycle_with_payment(
+    cycle_row = _create_subscription_cycle_with_escrow(
         db=db,
         subscription=row,
         user_seed=user_seed,
@@ -2171,10 +2276,11 @@ def approve_subscription_request(
 
     row.status = "active"
     row.request_status = "approved"
-    row.approved_at = datetime.now(timezone.utc)
+    row.approved_at = approved_at
     row.approved_by_username = payload.username
+    row.start_date = first_cycle_start
     row.next_payment_date = first_cycle_end
-    row.updated_at = datetime.now(timezone.utc)
+    row.updated_at = approved_at
     db.commit()
     db.refresh(row)
     _send_vendor_webhook(
@@ -2182,6 +2288,8 @@ def approve_subscription_request(
         {
             "event": "subscription.approved",
             "subscription_id": row.id,
+            "cycle_id": cycle_row.id,
+            "cycle_index": cycle_row.cycle_index,
             "vendor_tx_id": row.vendor_tx_id,
             "contract_hash": row.contract_hash,
             "request_status": row.request_status,
@@ -2258,7 +2366,7 @@ def cancel_subscription_request(
             tx_hash=None,
             counterparty_address=row.merchant_wallet_address,
             amount=row.amount_xrp,
-            currency="XRP",
+            currency=settings.RLUSD_CURRENCY,
             status=row.status,
             note=f"Subscription request cancelled (vendor_tx_id={row.vendor_tx_id})",
         )
@@ -2272,7 +2380,7 @@ def cancel_subscription_request(
             tx_hash=None,
             counterparty_address=row.merchant_wallet_address,
             amount=row.amount_xrp,
-            currency="XRP",
+            currency=settings.RLUSD_CURRENCY,
             status=row.status,
             note=f"Auto-renew disabled (vendor_tx_id={row.vendor_tx_id})",
         )
@@ -2586,6 +2694,276 @@ def list_subscription_cycles(subscription_id: int, db: Session) -> dict[str, Any
     return _success("Subscription cycles", [_cycle_to_dict(row) for row in rows])
 
 
+def _release_locked_cycle_and_settle_rlusd(
+    db: Session,
+    subscription: Subscription,
+    cycle: SubscriptionCycle,
+    claimer_seed: str,
+) -> dict[str, Any]:
+    claimer_wallet = _wallet_from_seed(claimer_seed)
+    client = _get_xrpl_client()
+
+    finish_tx = EscrowFinish(
+        account=claimer_wallet.classic_address,
+        owner=subscription.user_wallet_address,
+        offer_sequence=cycle.escrow_offer_sequence,
+    )
+    try:
+        finish_response = submit_and_wait(finish_tx, client, claimer_wallet)
+        finish_result = finish_response.result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Escrow finish failed: {exc}") from exc
+
+    finish_hash = finish_result.get("hash") or finish_result.get("tx_json", {}).get("hash")
+    finish_status = finish_result.get("meta", {}).get("TransactionResult") or finish_result.get("engine_result") or "unknown"
+    if not str(finish_status).startswith("tes"):
+        raise HTTPException(status_code=400, detail=f"Escrow finish failed with XRPL status: {finish_status}")
+
+    user_seed = _get_seed_for_address(db, subscription.user_wallet_address)
+    settlement = _send_issued_payment(
+        sender_seed=user_seed,
+        destination_address=subscription.merchant_wallet_address,
+        amount=subscription.amount_xrp,
+        currency=settings.RLUSD_CURRENCY,
+        issuer=settings.RLUSD_ISSUER,
+        tx_type="subscription_cycle_payment_rlusd",
+    )
+
+    cycle.status = "released"
+    cycle.escrow_finish_tx_hash = finish_hash
+    cycle.updated_at = datetime.now(timezone.utc)
+    subscription.escrow_status = "released"
+    subscription.last_tx_hash = settlement["tx_hash"]
+    subscription.updated_at = datetime.now(timezone.utc)
+
+    db.add(
+        Transaction(
+            tx_hash=finish_hash,
+            tx_type="subscription_cycle_escrow_finish",
+            from_address=subscription.user_wallet_address,
+            to_address=subscription.merchant_wallet_address,
+            amount_xrp=0.0,
+            status=finish_status,
+        )
+    )
+    db.add(
+        Transaction(
+            tx_hash=settlement["tx_hash"],
+            tx_type="subscription_cycle_payment_rlusd",
+            from_address=subscription.user_wallet_address,
+            to_address=subscription.merchant_wallet_address,
+            amount_xrp=0.0,
+            status=settlement["status"],
+        )
+    )
+    _record_history(
+        db,
+        user_wallet_address=subscription.user_wallet_address,
+        event_type="subscription_cycle_escrow_release",
+        tx_hash=finish_hash,
+        counterparty_address=subscription.merchant_wallet_address,
+        amount=subscription.amount_xrp,
+        currency=settings.RLUSD_CURRENCY,
+        status=finish_status,
+        note=f"Escrow released for subscription {subscription.id} cycle {cycle.cycle_index}",
+    )
+    _record_history(
+        db,
+        user_wallet_address=subscription.user_wallet_address,
+        event_type="subscription_release",
+        tx_hash=settlement["tx_hash"],
+        counterparty_address=subscription.merchant_wallet_address,
+        amount=subscription.amount_xrp,
+        currency=settings.RLUSD_CURRENCY,
+        status=settlement["status"],
+        note=f"RLUSD settlement for subscription {subscription.id} cycle {cycle.cycle_index}",
+    )
+    _apply_spending(db, subscription.user_wallet_address, subscription.amount_xrp, settings.RLUSD_CURRENCY)
+    db.commit()
+    db.refresh(cycle)
+    db.refresh(subscription)
+    return {"finish_hash": finish_hash, "finish_status": finish_status, "settlement": settlement}
+
+
+def claim_subscription_cycle(
+    subscription_id: int,
+    cycle_id: int,
+    payload: SubscriptionClaimCycleRequest,
+    request: Request,
+    db: Session,
+) -> dict[str, Any]:
+    subscription = db.query(Subscription).filter(Subscription.id == subscription_id).first()
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    vendor: Optional[Vendor] = None
+    vendor_secret = request.headers.get(settings.VENDOR_SHARED_SECRET_HEADER, "").strip()
+    if vendor_secret:
+        vendor = db.query(Vendor).filter(Vendor.shared_secret == vendor_secret).first()
+        if vendor and vendor.id != subscription.vendor_id:
+            raise HTTPException(status_code=401, detail="Not authorized to claim this subscription cycle")
+
+    cycle = (
+        db.query(SubscriptionCycle)
+        .filter(SubscriptionCycle.id == cycle_id)
+        .filter(SubscriptionCycle.subscription_id == subscription_id)
+        .first()
+    )
+    if not cycle:
+        raise HTTPException(status_code=404, detail="Subscription cycle not found")
+    if cycle.status == "released":
+        return _success(
+            "Subscription cycle already released",
+            {
+                "subscription_id": subscription.id,
+                "cycle_id": cycle.id,
+                "status": cycle.status,
+                "escrow_finish_tx_hash": cycle.escrow_finish_tx_hash,
+                "rlusd_payment_tx_hash": subscription.last_tx_hash,
+            },
+        )
+    if cycle.status != "locked":
+        raise HTTPException(status_code=409, detail=f"Cycle cannot be claimed from status '{cycle.status}'")
+    if not cycle.escrow_offer_sequence:
+        raise HTTPException(status_code=400, detail="Cycle is missing escrow sequence")
+
+    vendor_wallet = _wallet_from_seed(payload.vendor_seed)
+    if vendor_wallet.classic_address != subscription.merchant_wallet_address:
+        raise HTTPException(status_code=400, detail="Provided vendor seed does not match merchant wallet")
+    if vendor is None:
+        vendor = db.query(Vendor).filter(Vendor.id == subscription.vendor_id).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    release = _release_locked_cycle_and_settle_rlusd(
+        db=db,
+        subscription=subscription,
+        cycle=cycle,
+        claimer_seed=payload.vendor_seed,
+    )
+    finish_hash = release["finish_hash"]
+    settlement = release["settlement"]
+
+    _send_vendor_webhook(
+        db,
+        vendor,
+        "subscription.cycle_released",
+        {
+            "event": "subscription.cycle_released",
+            "subscription_id": subscription.id,
+            "cycle_id": cycle.id,
+            "cycle_index": cycle.cycle_index,
+            "escrow_finish_tx_hash": finish_hash,
+            "rlusd_payment_tx_hash": settlement["tx_hash"],
+            "status": cycle.status,
+        },
+    )
+
+    return _success(
+        "Subscription cycle released and settled in RLUSD",
+        {
+            "subscription_id": subscription.id,
+            "cycle": _cycle_to_dict(cycle),
+            "escrow_finish_tx_hash": finish_hash,
+            "rlusd_payment_tx_hash": settlement["tx_hash"],
+            "status": cycle.status,
+        },
+    )
+
+
+def refund_subscription_cycle(
+    subscription_id: int,
+    cycle_id: int,
+    payload: SubscriptionRefundCycleRequest,
+    db: Session,
+) -> dict[str, Any]:
+    subscription = db.query(Subscription).filter(Subscription.id == subscription_id).first()
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    profile = db.query(UserProfile).filter(UserProfile.id == subscription.user_profile_id).first()
+    if payload.username and (not profile or profile.username != payload.username):
+        raise HTTPException(status_code=401, detail="Not authorized to refund this cycle")
+    cycle = (
+        db.query(SubscriptionCycle)
+        .filter(SubscriptionCycle.id == cycle_id)
+        .filter(SubscriptionCycle.subscription_id == subscription_id)
+        .first()
+    )
+    if not cycle:
+        raise HTTPException(status_code=404, detail="Subscription cycle not found")
+    if cycle.status == "cancelled":
+        return _success(
+            "Subscription cycle already refunded",
+            {"subscription_id": subscription.id, "cycle_id": cycle.id, "status": cycle.status},
+        )
+    if cycle.status != "locked":
+        raise HTTPException(status_code=409, detail=f"Cycle cannot be refunded from status '{cycle.status}'")
+    if not cycle.escrow_offer_sequence:
+        raise HTTPException(status_code=400, detail="Cycle is missing escrow sequence")
+
+    now_ripple = datetime_to_ripple_time(datetime.now(timezone.utc))
+    cancel_after = int(cycle.escrow_cancel_after or 0)
+    if cancel_after and now_ripple < cancel_after:
+        raise HTTPException(status_code=409, detail="Cycle refund window has not opened yet")
+
+    user_seed = _get_seed_for_address(db, subscription.user_wallet_address)
+    user_wallet = _wallet_from_seed(user_seed)
+    client = _get_xrpl_client()
+    cancel_tx = EscrowCancel(
+        account=user_wallet.classic_address,
+        owner=subscription.user_wallet_address,
+        offer_sequence=cycle.escrow_offer_sequence,
+    )
+    try:
+        cancel_response = submit_and_wait(cancel_tx, client, user_wallet)
+        cancel_result = cancel_response.result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Escrow refund failed: {exc}") from exc
+
+    cancel_hash = cancel_result.get("hash") or cancel_result.get("tx_json", {}).get("hash")
+    cancel_status = cancel_result.get("meta", {}).get("TransactionResult") or cancel_result.get("engine_result") or "unknown"
+    if not str(cancel_status).startswith("tes"):
+        raise HTTPException(status_code=400, detail=f"Escrow refund failed with XRPL status: {cancel_status}")
+
+    cycle.status = "cancelled"
+    cycle.escrow_cancel_tx_hash = cancel_hash
+    cycle.updated_at = datetime.now(timezone.utc)
+    subscription.escrow_status = "cancelled"
+    subscription.updated_at = datetime.now(timezone.utc)
+    db.add(
+        Transaction(
+            tx_hash=cancel_hash,
+            tx_type="subscription_cycle_escrow_refund",
+            from_address=subscription.user_wallet_address,
+            to_address=subscription.merchant_wallet_address,
+            amount_xrp=0.0,
+            status=cancel_status,
+        )
+    )
+    _record_history(
+        db,
+        user_wallet_address=subscription.user_wallet_address,
+        event_type="subscription_cycle_escrow_refund",
+        tx_hash=cancel_hash,
+        counterparty_address=subscription.merchant_wallet_address,
+        amount=subscription.amount_xrp,
+        currency=settings.RLUSD_CURRENCY,
+        status=cancel_status,
+        note=f"Escrow refunded for subscription {subscription.id} cycle {cycle.cycle_index}",
+    )
+    db.commit()
+    db.refresh(cycle)
+    db.refresh(subscription)
+    return _success(
+        "Subscription cycle refunded",
+        {
+            "subscription_id": subscription.id,
+            "cycle": _cycle_to_dict(cycle),
+            "escrow_cancel_tx_hash": cancel_hash,
+            "status": cycle.status,
+        },
+    )
+
+
 # Create the next billing-cycle escrow for an active auto-renewing subscription.
 def process_subscription_cycle(
     subscription_id: int,
@@ -2611,11 +2989,16 @@ def process_subscription_cycle(
         .order_by(SubscriptionCycle.cycle_index.desc())
         .first()
     )
+    if latest_cycle and latest_cycle.status == "locked":
+        raise HTTPException(
+            status_code=409,
+            detail="Latest cycle is still locked. Claim or refund it before creating a new cycle.",
+        )
     next_cycle_index = (latest_cycle.cycle_index + 1) if latest_cycle else 1
-    period_start = subscription.next_payment_date
+    period_start = _as_utc(subscription.next_payment_date) or datetime.now(timezone.utc)
     period_end = period_start + timedelta(seconds=_subscription_interval_seconds(subscription))
 
-    cycle_row = _create_subscription_cycle_with_payment(
+    cycle_row = _create_subscription_cycle_with_escrow(
         db=db,
         subscription=subscription,
         user_seed=user_seed,
@@ -2661,6 +3044,127 @@ def process_subscription_cycle(
             "status": subscription.status,
         },
     )
+
+
+def _auto_approve_pending_subscriptions(db: Session) -> tuple[int, int]:
+    approved = 0
+    failed = 0
+    rows = (
+        db.query(Subscription)
+        .filter(Subscription.request_status == "pending")
+        .order_by(Subscription.created_at.asc())
+        .limit(50)
+        .all()
+    )
+    for row in rows:
+        try:
+            profile = db.query(UserProfile).filter(UserProfile.id == row.user_profile_id).first()
+            if not profile or not profile.username:
+                failed += 1
+                continue
+            approve_subscription_request(
+                row.id,
+                SubscriptionApproveRequest(username=profile.username),
+                db,
+            )
+            approved += 1
+        except Exception as exc:
+            db.rollback()
+            logger.warning("Auto-approve failed for subscription %s: %s", row.id, exc)
+            failed += 1
+    return approved, failed
+
+
+def auto_process_due_subscription_cycles(db: Session) -> dict[str, int]:
+    now_utc = datetime.now(timezone.utc)
+    approved = 0
+    processed = 0
+    skipped = 0
+    failed = 0
+
+    if settings.DEMO_AUTO_APPROVE_SUBSCRIPTIONS:
+        approved_count, approve_failed = _auto_approve_pending_subscriptions(db)
+        approved += approved_count
+        failed += approve_failed
+
+    # Optional fallback mode: backend can auto-release locked cycles.
+    if settings.AUTO_RELEASE_SUBSCRIPTION_CYCLES:
+        locked_cycles = (
+            db.query(SubscriptionCycle, Subscription)
+            .join(Subscription, Subscription.id == SubscriptionCycle.subscription_id)
+            .filter(SubscriptionCycle.status == "locked")
+            .order_by(SubscriptionCycle.created_at.asc())
+            .limit(100)
+            .all()
+        )
+        for cycle, subscription in locked_cycles:
+            try:
+                claim_ready_at = (_as_utc(cycle.created_at) or now_utc) + timedelta(
+                    seconds=settings.SUBSCRIPTION_ESCROW_CLAIM_DELAY_SECONDS
+                )
+                if now_utc < claim_ready_at:
+                    skipped += 1
+                    continue
+                user_seed = _get_seed_for_address(db, subscription.user_wallet_address)
+                _release_locked_cycle_and_settle_rlusd(
+                    db=db,
+                    subscription=subscription,
+                    cycle=cycle,
+                    claimer_seed=user_seed,
+                )
+                processed += 1
+            except Exception as exc:
+                db.rollback()
+                logger.warning(
+                    "Auto-release failed for subscription %s cycle %s: %s",
+                    subscription.id,
+                    cycle.id,
+                    exc,
+                )
+                failed += 1
+
+    # Pass 2: create next cycle for due, auto-renew subscriptions.
+    rows = (
+        db.query(Subscription)
+        .filter(Subscription.request_status == "approved")
+        .filter(Subscription.auto_renew == True)  # noqa: E712
+        .filter(Subscription.status.in_(["active"]))
+        .order_by(Subscription.next_payment_date.asc())
+        .limit(50)
+        .all()
+    )
+
+    for subscription in rows:
+        try:
+            next_payment_date = _as_utc(subscription.next_payment_date) or now_utc
+            if next_payment_date > now_utc:
+                skipped += 1
+                continue
+            latest_cycle = (
+                db.query(SubscriptionCycle)
+                .filter(SubscriptionCycle.subscription_id == subscription.id)
+                .order_by(SubscriptionCycle.cycle_index.desc())
+                .first()
+            )
+            if latest_cycle and latest_cycle.status == "locked":
+                skipped += 1
+                continue
+            profile = db.query(UserProfile).filter(UserProfile.id == subscription.user_profile_id).first()
+            if not profile or not profile.username:
+                failed += 1
+                continue
+            process_subscription_cycle(
+                subscription.id,
+                SubscriptionProcessCycleRequest(username=profile.username),
+                db,
+            )
+            processed += 1
+        except Exception as exc:
+            db.rollback()
+            logger.warning("Auto-cycle creation failed for subscription %s: %s", subscription.id, exc)
+            failed += 1
+
+    return {"approved": approved, "processed": processed, "skipped": skipped, "failed": failed}
 
 
 # Configure monthly spending guard values for a user.

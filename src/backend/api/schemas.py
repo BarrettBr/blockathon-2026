@@ -58,7 +58,7 @@ class SubscriptionRequestCreateRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=128)
     amount_xrp: float = Field(..., gt=0)
     interval_days: int = Field(30, ge=1)
-    interval_seconds: Optional[int] = Field(default=None, ge=20, le=30 * 24 * 60 * 60)
+    interval_seconds: Optional[int] = Field(default=None, ge=5, le=30 * 24 * 60 * 60)
 
 
 class SubscriptionApproveRequest(BaseModel):
@@ -66,6 +66,12 @@ class SubscriptionApproveRequest(BaseModel):
 
 class SubscriptionProcessCycleRequest(BaseModel):
     username: str
+
+class SubscriptionClaimCycleRequest(BaseModel):
+    vendor_seed: str = Field(..., min_length=8)
+
+class SubscriptionRefundCycleRequest(BaseModel):
+    username: Optional[str] = None
 
 class SubscriptionCancelRequest(BaseModel):
     username: Optional[str] = None

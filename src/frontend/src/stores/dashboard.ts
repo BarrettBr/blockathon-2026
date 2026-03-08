@@ -13,7 +13,7 @@ export const useDashboardStore = defineStore("dashboard", {
   actions: {
     async loadDashboard(_userWalletAddress?: string, force = false) {
       const now = Date.now();
-      if (!force && this.data && now - this.fetchedAt < 5000) {
+      if (!force && this.data && now - this.fetchedAt < 2000) {
         return this.data;
       }
       if (dashboardInFlight) {

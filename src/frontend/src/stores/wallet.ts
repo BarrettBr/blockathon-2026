@@ -127,7 +127,7 @@ export const useWalletStore = defineStore("wallet", {
 
     async fetchAggregateBalance(force = false) {
       const now = Date.now();
-      if (!force && this.aggregateBalance && now - this.aggregateFetchedAt < 5000) {
+      if (!force && this.aggregateBalance && now - this.aggregateFetchedAt < 2000) {
         return this.aggregateBalance;
       }
       if (aggregateInFlight) {

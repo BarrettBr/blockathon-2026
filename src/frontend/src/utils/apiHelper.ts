@@ -125,8 +125,22 @@ export const apiHelper = {
 	api.get<ApiEnvelope<any>>(`/subscriptions/contract/${contractHash}`),
 
 	listSubscriptions: () => api.get<ApiEnvelope<any[]>>("/subscriptions"),
-		getSubscription: (subscriptionId: number) =>
+	getSubscription: (subscriptionId: number) =>
 	api.get<ApiEnvelope<any>>(`/subscriptions/${subscriptionId}`),
+	claimSubscriptionCycle: (
+		subscriptionId: number,
+		cycleId: number,
+		payload: { vendor_seed: string },
+		sharedSecret: string,
+	) =>
+	api.post<ApiEnvelope<any>>(`/subscriptions/${subscriptionId}/cycles/${cycleId}/claim`, payload, {
+		headers: { "X-Vendor-Secret": sharedSecret },
+	}),
+	refundSubscriptionCycle: (
+		subscriptionId: number,
+		cycleId: number,
+		payload: { username?: string } = {},
+	) => api.post<ApiEnvelope<any>>(`/subscriptions/${subscriptionId}/cycles/${cycleId}/refund`, payload),
 
 	sendXrpPaymentAsVendor: (
 		sharedSecret: string,
