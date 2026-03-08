@@ -76,7 +76,7 @@ from schemas import (
     WalletImportRequest,
 )
 
-_DASHBOARD_AGGREGATE_CACHE_TTL_SECONDS = 4
+_DASHBOARD_AGGREGATE_CACHE_TTL_SECONDS = 1
 _dashboard_aggregate_cache: dict[int, tuple[datetime, dict[str, Any]]] = {}
 logger = logging.getLogger("equipay")
 
@@ -3315,6 +3315,8 @@ def get_dashboard(user_wallet_address: str, db: Session = Depends(get_db)) -> di
         db.query(Subscription)
         .filter(Subscription.user_wallet_address == user_wallet_address)
         .filter(Subscription.status == "active")
+        .filter(Subscription.request_status == "approved")
+        .filter(Subscription.auto_renew == True)  # noqa: E712
         .order_by(Subscription.next_payment_date.asc())
         .limit(5)
         .all()

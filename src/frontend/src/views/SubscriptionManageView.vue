@@ -200,8 +200,9 @@ function explorerTxUrl(txHash: string): string {
 		<article class="panel">
       <div class="panel-head">
 			  <h3>Pending Approvals</h3>
-        <button class="compact secondary" :disabled="pendingRefreshing" @click="refreshPending">
-          {{ pendingRefreshing ? "Refreshing..." : "Refresh" }}
+        <button class="compact secondary refresh-btn" :disabled="pendingRefreshing" @click="refreshPending">
+          <i class="pi pi-refresh" :class="{ spinning: pendingRefreshing }"></i>
+          <span>Refresh</span>
         </button>
       </div>
 			<div class="table-wrap">
@@ -378,6 +379,17 @@ input {
   opacity: 0.72;
 }
 .compact.secondary { background: var(--accent-2); }
+.refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.refresh-btn i {
+  font-size: 0.82rem;
+}
+.refresh-btn i.spinning {
+  animation: spin 0.9s linear infinite;
+}
 .compact.danger { background: var(--danger-bg); color: var(--btn-text); }
 .compact.danger-outline {
 	background: var(--danger-bg-soft);
@@ -493,6 +505,10 @@ th, td {
 .message { margin: 0; font-weight: 600; }
 .message.success { color: #1f7a3b; }
 .message.error { color: #b42318; }
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 @media (max-width: 900px) {
 	.filters { grid-template-columns: 1fr; }
 }
