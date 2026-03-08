@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+		<title>NovaBeat — Music Unbound</title>
+		<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
+		<link rel="stylesheet" href="styles.css">
+	</head>
+	<body>
+
+		<nav>
+			<div class="logo">Nova<span>Beat</span></div>
+			<div class="nav-links">
+				<a href="#">Discover</a>
+				<a href="#">Charts</a>
+				<a href="#">Artists</a>
+				<a href="#pricing">Pricing</a>
+			</div>
+			<button class="nav-cta" onclick="document.getElementById('setup').scrollIntoView({behavior:'smooth'})">Vendor Setup</button>
+		</nav>
+
+		<div class="hero">
+			<div class="hero-text">
+				<div class="hero-eyebrow">Powered by XRPL · EquiPay Subscriptions</div>
+				<h1>Music <em>Without</em> Limits</h1>
+				<p>Stream 90 million tracks, offline listening, and exclusive artist content — all billed transparently on-chain via EquiPay.</p>
+				<div class="hero-cta">
+					<button class="btn-primary" onclick="document.getElementById('pricing').scrollIntoView({behavior:'smooth'})">See Plans</button>
+					<button class="btn-ghost">How it works</button>
+				</div>
+			</div>
+			<div class="hero-visual">
+				<div class="waveform" id="waveform"></div>
+				<div class="now-playing">
+					<div class="np-label">Now Playing</div>
+					<div class="np-title">Midnight Frequencies</div>
+					<div class="np-artist">Solar Drift · Ultraviolet</div>
+					<div class="np-bar"><div class="np-progress"></div></div>
+				</div>
+				<div class="stats-row">
+					<div class="stat"><div class="stat-num">90M</div><div class="stat-label">Tracks</div></div>
+					<div class="stat"><div class="stat-num">4K</div><div class="stat-label">Artists</div></div>
+					<div class="stat"><div class="stat-num">100%</div><div class="stat-label">On-Chain</div></div>
+				</div>
+			</div>
+		</div>
+
+		<section id="pricing">
+			<div class="section-tag">Transparent · On-Chain · No Surprises</div>
+			<div class="section-title">Choose Your Plan</div>
+			<div class="section-sub">Every subscription is a verifiable escrow on the XRP Ledger. Cancel any time, your funds are protected.</div>
+
+			<div class="pricing-grid">
+				<div class="plan-card">
+					<div class="plan-name">Basic</div>
+					<div class="plan-price"><sup>◈</sup>2<sub> XRP</sub></div>
+					<div class="plan-interval">per 30 days</div>
+					<ul class="plan-features">
+						<li>Stream up to 128kbps</li>
+						<li>2 devices simultaneously</li>
+						<li>Basic discovery feed</li>
+						<li class="highlight">On-chain billing via EquiPay</li>
+					</ul>
+					<button class="plan-subscribe" onclick="openSubscribeModal('Basic', 2, 30)">Subscribe with EquiPay</button>
+				</div>
+
+				<div class="plan-card featured">
+					<div class="plan-badge">Most Popular</div>
+					<div class="plan-name">Pro</div>
+					<div class="plan-price"><sup>◈</sup>5<sub> XRP</sub></div>
+					<div class="plan-interval">per 30 days</div>
+					<ul class="plan-features">
+						<li class="highlight">Lossless 320kbps streaming</li>
+						<li class="highlight">Offline downloads</li>
+						<li class="highlight">5 devices simultaneously</li>
+						<li class="highlight">On-chain billing via EquiPay</li>
+					</ul>
+					<button class="plan-subscribe" onclick="openSubscribeModal('Pro', 5, 30)">Subscribe with EquiPay</button>
+				</div>
+
+				<div class="plan-card">
+					<div class="plan-name">Unlimited</div>
+					<div class="plan-price"><sup>◈</sup>12<sub> XRP</sub></div>
+					<div class="plan-interval">per 30 days</div>
+					<ul class="plan-features">
+						<li class="highlight">Everything in Pro</li>
+						<li>Family sharing (6 accounts)</li>
+						<li>Exclusive early access drops</li>
+						<li class="highlight">On-chain billing via EquiPay</li>
+					</ul>
+					<button class="plan-subscribe" onclick="openSubscribeModal('Unlimited', 12, 30)">Subscribe with EquiPay</button>
+				</div>
+			</div>
+		</section>
+
+		<section id="setup">
+			<div class="section-tag">Demo Configuration</div>
+			<div class="section-title">Vendor Setup</div>
+			<div class="section-sub">Register this vendor with your local EquiPay instance. Credentials are saved in your browser.</div>
+
+			<div class="setup-panel">
+				<h3>EquiPay Vendor Registration</h3>
+				<p>Fill in your vendor details and click Register to create or update this vendor in EquiPay.</p>
+				<div class="setup-grid">
+					<div class="field">
+						<label>Vendor Code</label>
+						<input id="cfg-vendor-code" type="text" value="novabeat"/>
+					</div>
+					<div class="field">
+						<label>Display Name</label>
+						<input id="cfg-display-name" type="text" value="NovaBeat"/>
+					</div>
+					<div class="field">
+						<label>Wallet Address (rXXX…)</label>
+						<input id="cfg-wallet" type="text" placeholder="rXXX..."/>
+					</div>
+					<div class="field">
+						<label>Shared Secret</label>
+						<input id="cfg-secret" type="text" placeholder="your-shared-secret"/>
+					</div>
+				</div>
+				<div class="setup-actions">
+					<button class="btn-setup" onclick="registerVendor()">Register Vendor</button>
+					<span id="setup-status" class="status-indicator"></span>
+				</div>
+			</div>
+		</section>
+
+		<div class="modal-overlay" id="modal">
+			<div class="modal">
+				<button class="modal-close" onclick="closeModal()">×</button>
+
+				<div class="subscribe-form" id="subscribe-form">
+					<h2>Subscribe</h2>
+					<p style="color:var(--muted);font-size:0.88rem;margin-top:0.3rem;">Enter your EquiPay username to begin.</p>
+					<div class="modal-plan-summary">
+						<div>
+							<div class="modal-plan-name" id="modal-plan-name">Pro</div>
+							<div style="font-size:0.78rem;color:var(--muted);margin-top:0.2rem;">30-day escrow · cancellable</div>
+						</div>
+						<div class="modal-plan-price" id="modal-plan-price">5 XRP</div>
+					</div>
+					<div class="field">
+						<label>EquiPay Username</label>
+						<input id="modal-username" type="text" placeholder="alice"/>
+					</div>
+					<button class="btn-confirm" id="btn-confirm" onclick="submitSubscription()">Confirm Subscription</button>
+					<div class="modal-error" id="modal-error"></div>
+				</div>
+
+				<div class="confirm-state" id="confirm-state">
+					<div class="confirm-icon">✦</div>
+					<h3>Request Sent</h3>
+					<p>Your subscription request has been created. Open the <strong style="color:var(--accent)">EquiPay app</strong> and approve it from your pending subscriptions.</p>
+					<div class="contract-hash-label">Contract Hash</div>
+					<div class="contract-hash" id="confirm-hash"></div>
+					<button class="btn-done" onclick="closeModal()">Close</button>
+				</div>
+			</div>
+		</div>
+
+		<footer>
+			<p>NovaBeat is a <strong>demo vendor</strong> for EquiPay · XRPL subscription payments · All billing is on-chain</p>
+		</footer>
+
+		<script>
+		const wf = document.getElementById('waveform');
+		const heights = [20,35,55,70,80,65,45,30,20,40,60,75,80,70,50,35,25,45,65,78,72,55,38,22,42,68,80,74,58,40];
+		heights.forEach((h, i) => {
+			const bar = document.createElement('span');
+			bar.style.height = h + 'px';
+			bar.style.animationDelay = (i * 0.04) + 's';
+			bar.style.opacity = 0.4 + (h / 80) * 0.6;
+			wf.appendChild(bar);
+		});
+
+		let currentPlan = { name: '', amount: 0, days: 30 };
+		let vendorSecret = localStorage.getItem('nb_secret') || '';
+		let vendorCode   = localStorage.getItem('nb_vendor_code') || 'novabeat';
+
+		if (localStorage.getItem('nb_vendor_code')) document.getElementById('cfg-vendor-code').value = localStorage.getItem('nb_vendor_code');
+		if (localStorage.getItem('nb_display_name')) document.getElementById('cfg-display-name').value = localStorage.getItem('nb_display_name');
+		if (localStorage.getItem('nb_wallet'))       document.getElementById('cfg-wallet').value = localStorage.getItem('nb_wallet');
+		if (localStorage.getItem('nb_secret'))       document.getElementById('cfg-secret').value = localStorage.getItem('nb_secret');
+
+		async function registerVendor() {
+			const code   = document.getElementById('cfg-vendor-code').value.trim();
+			const name   = document.getElementById('cfg-display-name').value.trim();
+			const wallet = document.getElementById('cfg-wallet').value.trim();
+			const secret = document.getElementById('cfg-secret').value.trim();
+
+			if (!code || !name || !wallet || !secret) { showStatus('All fields required', false); return; }
+
+			try {
+				const resp = await fetch('/proxy/vendors/upsert', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ vendor_code: code, display_name: name, wallet_address: wallet, shared_secret: secret }),
+				});
+				const data = await resp.json();
+				if (!resp.ok) throw new Error(data.detail || 'Registration failed');
+
+				localStorage.setItem('nb_vendor_code', code);
+				localStorage.setItem('nb_display_name', name);
+				localStorage.setItem('nb_wallet', wallet);
+				localStorage.setItem('nb_secret', secret);
+				vendorSecret = secret;
+				vendorCode   = code;
+				showStatus('Vendor registered ✓', true);
+			} catch (e) {
+				showStatus(e.message, false);
+			}
+		}
+
+		function showStatus(msg, ok) {
+			const el = document.getElementById('setup-status');
+			el.textContent = msg;
+			el.className = 'status-indicator ' + (ok ? 'ok' : 'err');
+		}
+
+		function openSubscribeModal(planName, amount, days) {
+			if (!vendorSecret) { alert('Set up your vendor credentials first (scroll to Vendor Setup).'); return; }
+			currentPlan = { name: planName, amount, days };
+			document.getElementById('modal-plan-name').textContent  = planName;
+			document.getElementById('modal-plan-price').textContent = amount + ' XRP';
+			document.getElementById('modal-username').value = '';
+			document.getElementById('modal-error').className = 'modal-error';
+			document.getElementById('subscribe-form').classList.remove('hidden');
+			document.getElementById('confirm-state').classList.remove('show');
+			document.getElementById('btn-confirm').disabled = false;
+			document.getElementById('btn-confirm').textContent = 'Confirm Subscription';
+			document.getElementById('modal').classList.add('open');
+		}
+
+		function closeModal() { document.getElementById('modal').classList.remove('open'); }
+
+		document.getElementById('modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
+
+		async function submitSubscription() {
+			const username = document.getElementById('modal-username').value.trim();
+			const btn      = document.getElementById('btn-confirm');
+
+			if (!username) { showModalError('Please enter your EquiPay username.'); return; }
+
+			btn.disabled = true;
+			btn.textContent = 'Processing…';
+			document.getElementById('modal-error').className = 'modal-error';
+
+			try {
+				const resp = await fetch('/proxy/subscriptions/requests', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json', 'X-Vendor-Secret': vendorSecret },
+					body: JSON.stringify({
+						vendor_tx_id:  'NB-' + currentPlan.name.toUpperCase() + '-' + Date.now(),
+						username,
+						amount_xrp:    currentPlan.amount,
+						interval_days: currentPlan.days,
+					}),
+				});
+				const data = await resp.json();
+				if (!resp.ok) throw new Error(data.detail || 'Subscription request failed');
+
+				document.getElementById('confirm-hash').textContent = data.data.contract_hash;
+				document.getElementById('subscribe-form').classList.add('hidden');
+				document.getElementById('confirm-state').classList.add('show');
+			} catch (e) {
+				showModalError(e.message);
+				btn.disabled = false;
+				btn.textContent = 'Confirm Subscription';
+			}
+		}
+
+		function showModalError(msg) {
+			const el = document.getElementById('modal-error');
+			el.textContent = msg;
+			el.className = 'modal-error show';
+		}
+		</script>
+	</body>
+</html>

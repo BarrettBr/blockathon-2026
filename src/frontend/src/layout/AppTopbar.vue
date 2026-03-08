@@ -4,16 +4,20 @@ import { useLayoutStore } from "@/stores/layout";
 import { useWalletStore } from "@/stores/wallet";
 import Menu from "primevue/menu";
 import Button from "primevue/button";
+import { useAuthStore } from "@/stores/auth";
+import { useRouter } from "vue-router";
 
 const layout = useLayoutStore();
 const wallet = useWalletStore();
+const auth = useAuthStore();
+const router = useRouter();
 const menu = ref();
 
 const items = ref([
   { label: 'My Profile', icon: 'pi pi-user' },
   { label: 'Settings', icon: 'pi pi-cog' },
   { separator: true },
-  { label: 'Logout', icon: 'pi pi-sign-out' }
+  { label: 'Logout', icon: 'pi pi-sign-out', command: () => { auth.logout(); router.push("/login"); } }
 ]);
 
 const toggleMenu = (event: Event) => {

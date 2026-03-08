@@ -69,6 +69,15 @@ from schemas import (
 
 router = APIRouter()
 
+# Look up stored seed for a wallet address, raising clearly if missing.
+def _get_seed_for_address(db: Session, address: str) -> str:
+    wallet_row = db.query(Wallet).filter(Wallet.address == address).first()
+    if not wallet_row or not wallet_row.seed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No seed on file for wallet {address}. Re-import or reconnect the wallet.",
+        )
+    return wallet_row.seed
 
 # Standard API success shape.
 def _success(message: str, data: Any) -> dict[str, Any]:
@@ -1167,6 +1176,7 @@ def create_wallet(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 # Import wallet from seed and persist it for demo use.
 @router.post("/wallets/import", response_model=ApiResponse)
+@router.post("/wallets/import", response_model=ApiResponse)
 def import_wallet(payload: WalletImportRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     wallet = _wallet_from_seed(payload.seed)
     wallet_row = _save_or_get_wallet(db, wallet.classic_address, payload.seed)
@@ -1175,11 +1185,9 @@ def import_wallet(payload: WalletImportRequest, db: Session = Depends(get_db)) -
         {
             "id": wallet_row.id,
             "address": wallet_row.address,
-            "seed": wallet_row.seed,
             "network": wallet_row.network,
         },
     )
-
 
 # Connect a wallet to the current user with a shorthand nickname.
 def connect_user_wallet(payload: WalletConnectRequest, current_user: UserProfile, db: Session) -> dict[str, Any]:
@@ -1222,7 +1230,6 @@ def connect_user_wallet(payload: WalletConnectRequest, current_user: UserProfile
             "nickname": link.nickname,
             "wallet_id": wallet_row.id,
             "address": wallet_row.address,
-            "seed": wallet_row.seed,
             "network": wallet_row.network,
             "created_at": link.created_at.isoformat(),
         },
@@ -1251,7 +1258,6 @@ def list_connected_wallets(current_user: UserProfile, db: Session, page: int = 1
             "nickname": link.nickname,
             "wallet_id": wallet_row.id,
             "address": wallet_row.address,
-            "seed": wallet_row.seed,
             "network": wallet_row.network,
             "created_at": link.created_at.isoformat(),
         }
@@ -1267,7 +1273,6 @@ def list_connected_wallets(current_user: UserProfile, db: Session, page: int = 1
             "pages": (total + page_size - 1) // page_size,
         },
     )
-
 
 # Remove a connected wallet link for current user only.
 def delete_connected_wallet(link_id: int, current_user: UserProfile, db: Session) -> dict[str, Any]:
@@ -1286,12 +1291,15 @@ def delete_connected_wallet(link_id: int, current_user: UserProfile, db: Session
 
 # Bootstrap RLUSD readiness: trust line + mint for an imported wallet.
 @router.post("/wallets/bootstrap-rlusd", response_model=ApiResponse)
+@router.post("/wallets/bootstrap-rlusd", response_model=ApiResponse)
 def bootstrap_rlusd_wallet(
     payload: BootstrapRlusdRequest,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    user_wallet = _wallet_from_seed(payload.user_seed)
-    _save_or_get_wallet(db, user_wallet.classic_address, payload.user_seed)
+    if not _is_valid_classic_address(payload.user_wallet_address):
+        raise HTTPException(status_code=400, detail="Invalid user_wallet_address")
+    user_seed = _get_seed_for_address(db, payload.user_wallet_address)
+    user_wallet = _wallet_from_seed(user_seed)
 
     trustline_created = _ensure_rlusd_trustline(user_wallet)
     mint_result = _mint_rlusd(user_wallet.classic_address, payload.mint_amount)
@@ -1323,7 +1331,6 @@ def bootstrap_rlusd_wallet(
         },
     )
 
-
 # List all known wallets in local SQLite.
 @router.get("/wallets", response_model=ApiResponse)
 def list_wallets(db: Session = Depends(get_db)) -> dict[str, Any]:
@@ -1334,7 +1341,6 @@ def list_wallets(db: Session = Depends(get_db)) -> dict[str, Any]:
             {
                 "id": row.id,
                 "address": row.address,
-                "seed": row.seed,
                 "network": row.network,
                 "created_at": row.created_at.isoformat(),
             }
@@ -1421,8 +1427,12 @@ def send_payment(
     db: Session = Depends(get_db),
     request: Request = None,
 ) -> dict[str, Any]:
+    if not _is_valid_classic_address(payload.from_address):
+        raise HTTPException(status_code=400, detail="Invalid from_address")
+    sender_seed = _get_seed_for_address(db, payload.from_address)
+
     payment_result = _send_xrp_payment(
-        sender_seed=payload.sender_seed,
+        sender_seed=sender_seed,
         destination_address=payload.destination_address,
         amount_xrp=payload.amount_xrp,
         tx_type="payment",
@@ -1454,9 +1464,7 @@ def send_payment(
         try:
             vendor = _get_vendor_from_request(request, db)
             _send_vendor_webhook(
-                db,
-                vendor,
-                "payment.sent",
+                db, vendor, "payment.sent",
                 {
                     "event": "payment.sent",
                     "tx_hash": tx_row.tx_hash,
@@ -1491,8 +1499,12 @@ def send_rlusd_payment(
     db: Session = Depends(get_db),
     request: Request = None,
 ):
+    if not _is_valid_classic_address(payload.from_address):
+        raise HTTPException(status_code=400, detail="Invalid from_address")
+    sender_seed = _get_seed_for_address(db, payload.from_address)
+
     payment_result = _send_issued_payment(
-        sender_seed=payload.sender_seed,
+        sender_seed=sender_seed,
         destination_address=payload.destination_address,
         amount=payload.amount,
         currency=settings.RLUSD_CURRENCY,
@@ -1526,9 +1538,7 @@ def send_rlusd_payment(
         try:
             vendor = _get_vendor_from_request(request, db)
             _send_vendor_webhook(
-                db,
-                vendor,
-                "payment.sent",
+                db, vendor, "payment.sent",
                 {
                     "event": "payment.sent",
                     "tx_hash": tx_row.tx_hash,
@@ -1780,6 +1790,12 @@ def create_subscription_request(
     if existing:
         raise HTTPException(status_code=409, detail="Duplicate vendor_tx_id for this vendor")
 
+    if not user_profile.wallet_address or not _is_valid_classic_address(user_profile.wallet_address):
+        raise HTTPException(
+            status_code=400,
+            detail="User has no wallet address configured. They must connect a wallet before subscribing."
+        )
+
     contract_payload = _build_subscription_contract_payload(
         vendor=vendor,
         user_profile=user_profile,
@@ -1878,9 +1894,7 @@ def approve_subscription_request(
     if not profile or profile.username != payload.username:
         raise HTTPException(status_code=400, detail="Username does not match subscription")
 
-    user_wallet = _wallet_from_seed(payload.user_seed)
-    if user_wallet.classic_address != row.user_wallet_address:
-        raise HTTPException(status_code=400, detail="Provided seed does not match subscribed user wallet")
+    user_seed = _get_seed_for_address(db, row.user_wallet_address)
 
     vendor = db.query(Vendor).filter(Vendor.id == row.vendor_id).first()
     if not vendor:
@@ -1904,7 +1918,7 @@ def approve_subscription_request(
     cycle_row = _create_subscription_cycle_with_escrow(
         db=db,
         subscription=row,
-        user_seed=payload.user_seed,
+        user_seed=user_seed,
         cycle_index=1,
         period_start=first_cycle_start,
         period_end=first_cycle_end,
@@ -1919,9 +1933,7 @@ def approve_subscription_request(
     db.commit()
     db.refresh(row)
     _send_vendor_webhook(
-        db,
-        vendor,
-        "subscription.approved",
+        db, vendor, "subscription.approved",
         {
             "event": "subscription.approved",
             "subscription_id": row.id,
@@ -1949,7 +1961,6 @@ def approve_subscription_request(
         },
     )
 
-
 # Lookup subscription by contract hash for auditing/inspection.
 def get_subscription_by_contract(contract_hash: str, db: Session) -> dict[str, Any]:
     row = db.query(Subscription).filter(Subscription.contract_hash == contract_hash).first()
@@ -1971,12 +1982,7 @@ def cancel_subscription_request(
     if row.status == "cancelled":
         return _success(
             "Subscription already cancelled",
-            {
-                "id": row.id,
-                "status": row.status,
-                "request_status": row.request_status,
-                "auto_renew": bool(row.auto_renew),
-            },
+            {"id": row.id, "status": row.status, "request_status": row.request_status, "auto_renew": bool(row.auto_renew)},
         )
 
     authorized = False
@@ -1987,16 +1993,14 @@ def cancel_subscription_request(
         if vendor.id == row.vendor_id:
             authorized = True
 
-    if payload and payload.username and payload.user_seed:
+    if payload and payload.username:
         profile = db.query(UserProfile).filter(UserProfile.id == row.user_profile_id).first()
-        user_wallet = _wallet_from_seed(payload.user_seed)
-        if profile and profile.username == payload.username and user_wallet.classic_address == row.user_wallet_address:
+        if profile and profile.username == payload.username:
             authorized = True
 
     if not authorized:
         raise HTTPException(status_code=401, detail="Not authorized to cancel this subscription")
 
-    # Pending requests are fully cancelled. Active subscriptions are made non-renewing.
     if row.request_status == "pending":
         row.status = "cancelled"
         row.request_status = "cancelled"
@@ -2010,9 +2014,7 @@ def cancel_subscription_request(
         vendor = db.query(Vendor).filter(Vendor.id == row.vendor_id).first()
     if vendor:
         _send_vendor_webhook(
-            db,
-            vendor,
-            "subscription.cancelled",
+            db, vendor, "subscription.cancelled",
             {
                 "event": "subscription.cancelled",
                 "subscription_id": row.id,
@@ -2323,9 +2325,7 @@ def process_subscription_cycle(
     profile = db.query(UserProfile).filter(UserProfile.id == subscription.user_profile_id).first()
     if not profile or profile.username != payload.username:
         raise HTTPException(status_code=400, detail="Username does not match subscription")
-    user_wallet = _wallet_from_seed(payload.user_seed)
-    if user_wallet.classic_address != subscription.user_wallet_address:
-        raise HTTPException(status_code=400, detail="Provided seed does not match subscribed user wallet")
+    user_seed = _get_seed_for_address(db, subscription.user_wallet_address)
 
     latest_cycle = (
         db.query(SubscriptionCycle)
@@ -2340,7 +2340,7 @@ def process_subscription_cycle(
     cycle_row = _create_subscription_cycle_with_escrow(
         db=db,
         subscription=subscription,
-        user_seed=payload.user_seed,
+        user_seed=user_seed,
         cycle_index=next_cycle_index,
         period_start=period_start,
         period_end=period_end,

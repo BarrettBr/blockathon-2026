@@ -32,23 +32,19 @@ class VendorUpdateRequest(BaseModel):
     wallet_address: Optional[str] = Field(default=None, min_length=25)
     webhook_url: Optional[str] = Field(default=None, max_length=512)
 
-
 class PaymentSendRequest(BaseModel):
-    sender_seed: str = Field(..., min_length=8)
-    destination_address: str = Field(..., min_length=25)
-    amount_xrp: float = Field(..., gt=0)
-
+    from_address: str
+    destination_address: str
+    amount_xrp: float
 
 class RlusdPaymentSendRequest(BaseModel):
-    sender_seed: str = Field(..., min_length=8)
-    destination_address: str = Field(..., min_length=25)
-    amount: float = Field(..., gt=0)
-
+    from_address: str
+    destination_address: str
+    amount: float
 
 class BootstrapRlusdRequest(BaseModel):
-    user_seed: str = Field(..., min_length=8)
-    mint_amount: float = Field(default=100.0, gt=0)
-
+    user_wallet_address: str
+    mint_amount: float
 
 class SubscriptionRequestCreateRequest(BaseModel):
     vendor_tx_id: str = Field(..., min_length=2, max_length=128)
@@ -58,19 +54,13 @@ class SubscriptionRequestCreateRequest(BaseModel):
 
 
 class SubscriptionApproveRequest(BaseModel):
-    username: str = Field(..., min_length=3, max_length=128)
-    user_seed: str = Field(..., min_length=8)
-
+    username: str
 
 class SubscriptionProcessCycleRequest(BaseModel):
-    username: str = Field(..., min_length=3, max_length=128)
-    user_seed: str = Field(..., min_length=8)
-
+    username: str
 
 class SubscriptionCancelRequest(BaseModel):
     username: Optional[str] = None
-    user_seed: Optional[str] = None
-
 
 class SpendingGuardSetRequest(BaseModel):
     user_wallet_address: str = Field(..., min_length=25)

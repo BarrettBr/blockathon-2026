@@ -20,6 +20,7 @@ from handlers.auth import create_access_token, get_current_user, hash_password, 
 import core as api_module
 import db
 from db import UserProfile
+from db import Wallet as WalletModel
 from schemas import (
     PaymentSendRequest,
     RlusdPaymentSendRequest,
@@ -127,6 +128,9 @@ def test_subscription_vendor_request_approve_cancel_flow(monkeypatch):
         UserProfileRegisterRequest(username="alice", wallet_address=user_address),
         session,
     )
+
+    session.add(WalletModel(address=user_address, seed="user-seed-123", network="testnet"))
+    session.commit()
     api_module.upsert_vendor(
         VendorCreateRequest(
             vendor_code="spotify",
@@ -283,6 +287,7 @@ def test_subscription_request_duplicate_and_vendor_auth_errors(monkeypatch):
 def test_send_payment_records_transaction(monkeypatch):
     session = _session()
     monkeypatch.setattr(api_module, "_is_valid_classic_address", lambda _address: True)
+    monkeypatch.setattr(api_module, "_get_seed_for_address", lambda db, address: "seed-pay-123")
     monkeypatch.setattr(
         api_module,
         "_send_xrp_payment",
@@ -300,7 +305,7 @@ def test_send_payment_records_transaction(monkeypatch):
 
     send_resp = api_module.send_payment(
         PaymentSendRequest(
-            sender_seed="seed-pay-123",
+            from_address="rSRC1111111111111111111111111111",
             destination_address="rDST1111111111111111111111111111",
             amount_xrp=2.0,
         ),
@@ -310,7 +315,6 @@ def test_send_payment_records_transaction(monkeypatch):
 
     list_resp = api_module.list_payments(session)
     assert any(row["tx_hash"] == "TX-PAY-1" for row in list_resp["data"])
-
 
 def test_send_xrp_payment_surfaces_non_success_status(monkeypatch):
     monkeypatch.setattr(api_module, "_is_valid_classic_address", lambda _address: True)
@@ -389,10 +393,13 @@ def test_send_rlusd_payment_endpoint(monkeypatch):
             "raw_result": {"hash": "TX-RLUSD-1"},
         },
     )
+    monkeypatch.setattr(api_module, "_get_seed_for_address", lambda db, address: "seed-rlusd-1")
+    monkeypatch.setattr(api_module, "_get_seed_for_address", lambda db, address: "seed-rlusd-1")
+    monkeypatch.setattr(api_module, "_is_valid_classic_address", lambda _address: True)
 
     resp = api_module.send_rlusd_payment(
         RlusdPaymentSendRequest(
-            sender_seed="seed-rlusd-1",
+            from_address="rSRCRLUSD111111111111111111111111",
             destination_address="rDSTRLUSD111111111111111111111111",
             amount=9.99,
         ),
