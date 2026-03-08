@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useWalletStore } from "@/stores/wallet";
 import { useSubscriptionStore } from "@/stores/subscription";
 import { useAuthStore } from "@/stores/auth";
+import { getExplorerTxUrl } from "@/utils/explorer";
 
 const wallet = useWalletStore();
 const subscription = useSubscriptionStore();
@@ -145,6 +146,10 @@ async function copyText(value: string) {
   }
 }
 
+function explorerTxUrl(txHash: string): string {
+  return getExplorerTxUrl(txHash);
+}
+
 </script>
 
 <template>
@@ -228,6 +233,14 @@ async function copyText(value: string) {
 								<div v-if="s.last_tx_hash" class="tx-box">
 									<input :value="s.last_tx_hash" readonly />
 									<button class="compact ghost" @click="copyText(s.last_tx_hash)">Copy</button>
+                  <a
+                    class="compact ghost link-btn"
+                    :href="explorerTxUrl(s.last_tx_hash)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    View
+                  </a>
 								</div>
 								<span v-else>-</span>
 							</td>
@@ -298,6 +311,11 @@ input {
 	background: #eef4ff;
 	color: #355a8f;
 	border: 1px solid #d6e4fb;
+}
+.compact.link-btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
 }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; min-width: 900px; }

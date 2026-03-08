@@ -2,6 +2,7 @@
 import { onMounted, watch } from "vue";
 import { useWalletStore } from "@/stores/wallet";
 import { useSubscriptionStore } from "@/stores/subscription";
+import { getExplorerTxUrl } from "@/utils/explorer";
 
 const wallet = useWalletStore();
 const subscription = useSubscriptionStore();
@@ -38,6 +39,10 @@ async function copyText(value: string) {
   if (!value) return;
   await navigator.clipboard.writeText(value);
 }
+
+function explorerTxUrl(txHash: string): string {
+  return getExplorerTxUrl(txHash);
+}
 </script>
 
 <template>
@@ -70,6 +75,7 @@ async function copyText(value: string) {
               <div v-if="row.tx_hash" class="tx-box">
                 <input :value="row.tx_hash" readonly />
                 <button class="copy-btn" @click="copyText(row.tx_hash)">Copy</button>
+                <a class="copy-btn view-btn" :href="explorerTxUrl(row.tx_hash)" target="_blank" rel="noopener noreferrer">View</a>
               </div>
               <span v-else>-</span>
             </td>
@@ -125,7 +131,11 @@ th, td {
   padding: 0.22rem 0.42rem;
   font-weight: 600;
   cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
 }
+.view-btn { background: #f5f8ff; }
 .event-pill,
 .status-pill {
   display: inline-block;
