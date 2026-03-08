@@ -136,19 +136,19 @@ async function regenerateSecret() {
 <style scoped>
 .stack { display: grid; gap: 1rem; }
 .panel {
-  background: rgba(255, 255, 255, 0.97);
-  border: 1px solid #dceaff;
+  background: var(--surface-panel);
+  border: 1px solid var(--border-color);
   border-radius: 14px;
   padding: 1rem;
   width: 100%;
   max-width: 1200px;
 }
-h3 { margin: 0 0 0.7rem; color: #1f467d; }
-.helper { margin: 0 0 0.55rem; color: #5d7ea8; }
-label { display: block; color: #355880; font-size: 0.9rem; margin-top: 0.45rem; }
+h3 { margin: 0 0 0.7rem; color: var(--text-strong); }
+.helper { margin: 0 0 0.55rem; color: var(--text-muted); }
+label { display: block; color: var(--text-muted); font-size: 0.9rem; margin-top: 0.45rem; }
 input {
   width: 100%;
-  border: 1px solid #cfe0fb;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 0.5rem 0.65rem;
   margin-top: 0.2rem;
@@ -158,13 +158,13 @@ input {
   border: none;
   border-radius: 8px;
   padding: 0.38rem 0.62rem;
-  background: linear-gradient(130deg, #2c6fdf, #1f58bf);
+  background: linear-gradient(130deg, var(--accent-1), var(--accent-2));
   color: #fff;
   font-weight: 700;
   font-size: 0.86rem;
   cursor: pointer;
 }
-.compact.secondary { background: #4f79b8; }
+.compact.secondary { background: var(--accent-2); }
 .message { margin: 0.6rem 0 0; font-weight: 600; }
 .message.success { color: #1f7a3b; }
 .message.error { color: #b42318; }

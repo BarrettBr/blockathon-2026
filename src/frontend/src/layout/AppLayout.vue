@@ -9,6 +9,7 @@ const wallet = useWalletStore();
 const layout = useLayoutStore();
 
 onMounted(async () => {
+  layout.initTheme();
   await wallet.loadWallets();
   if (wallet.selectedWallet) {
     await wallet.fetchSelectedBalance();
@@ -39,12 +40,13 @@ onMounted(async () => {
 <style scoped>
 .layout {
   min-height: 100vh;
+  background: var(--app-bg);
 }
 
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(8, 25, 50, 0.32);
+  background: rgba(7, 18, 34, 0.44);
   z-index: 15;
   display: none;
 }
@@ -55,9 +57,10 @@ onMounted(async () => {
 }
 
 .content {
-  padding: calc(68px + 1.2rem) 1.2rem 1.2rem;
+  padding: calc(74px + 1.2rem) 1.2rem 1.2rem;
   max-width: 1280px;
   margin: 0 auto;
+  color: var(--text-primary);
 }
 
 @media (max-width: 991px) {

@@ -56,6 +56,21 @@ async function askQuestion() {
   }
 }
 
+function formatDateLabel(value: string): string {
+  if (!value) return "-";
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return value;
+  return dt.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatRange(start: string, end: string): string {
+  return `${formatDateLabel(start)} to ${formatDateLabel(end)}`;
+}
+
 onMounted(refreshList);
 </script>
 
@@ -112,8 +127,8 @@ onMounted(refreshList);
             <tr v-for="row in snapshot.list" :key="row.id">
               <td>#{{ row.id }}</td>
               <td>{{ row.title }}</td>
-              <td>{{ row.created_at }}</td>
-              <td>{{ row.period_start }} -> {{ row.period_end }}</td>
+              <td>{{ formatDateLabel(row.created_at) }}</td>
+              <td>{{ formatRange(row.period_start, row.period_end) }}</td>
               <td>{{ row.summary_total_spend_xrp }}</td>
               <td><button class="compact" @click="openSnapshot(row.id)">Open Report</button></td>
             </tr>
@@ -128,7 +143,7 @@ onMounted(refreshList);
     <article v-if="snapshot.selected" class="panel">
       <h3>Report Details</h3>
       <p><strong>{{ snapshot.selected.title }}</strong></p>
-      <p>Period: {{ snapshot.selected.period_start }} -> {{ snapshot.selected.period_end }}</p>
+      <p>Period: {{ formatRange(snapshot.selected.period_start, snapshot.selected.period_end) }}</p>
       <p>Total: {{ snapshot.selected.summary_total_spend_xrp }} XRP</p>
       <p>Subscriptions: {{ snapshot.selected.summary_total_subscription_xrp }} XRP</p>
       <p>One-time payments: {{ snapshot.selected.summary_total_one_time_xrp }} XRP</p>
@@ -151,8 +166,8 @@ onMounted(refreshList);
 <style scoped>
 .stack { display: grid; gap: 1rem; }
 .panel {
-  background: rgba(255,255,255,0.97);
-  border: 1px solid #dceaff;
+  background: var(--surface-panel);
+  border: 1px solid var(--border-color);
   border-radius: 14px;
   padding: 1rem;
 }
@@ -164,24 +179,24 @@ onMounted(refreshList);
   margin-bottom: 0.7rem;
 }
 .panel-header h3 { margin: 0; }
-h3 + p { color: #284a73; }
-h3 { margin: 0 0 0.7rem; color: #1f467d; }
-label { display: block; color: #47678f; font-size: 0.86rem; margin-top: 0.45rem; }
+h3 + p { color: var(--text-primary); }
+h3 { margin: 0 0 0.7rem; color: var(--text-strong); }
+label { display: block; color: var(--text-muted); font-size: 0.86rem; margin-top: 0.45rem; }
 input, textarea {
   width: 100%;
-  border: 1px solid #cfe0fb;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 0.5rem 0.65rem;
   margin-top: 0.2rem;
 }
-.or { margin: 0.5rem 0 0; color: #466995; }
+.or { margin: 0.5rem 0 0; color: var(--text-muted); }
 .date-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
 .row-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
 .compact {
   border: none;
   border-radius: 8px;
   padding: 0.38rem 0.62rem;
-  background: linear-gradient(130deg, #2c6fdf, #1f58bf);
+  background: linear-gradient(130deg, var(--accent-1), var(--accent-2));
   color: #fff;
   font-weight: 700;
   font-size: 0.86rem;
@@ -191,27 +206,27 @@ input, textarea {
   cursor: not-allowed;
   opacity: 0.72;
 }
-.compact.secondary { background: #4f79b8; }
+.compact.secondary { background: var(--accent-2); }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; min-width: 860px; }
 th, td {
-  border-bottom: 1px solid #e4efff;
+  border-bottom: 1px solid var(--border-color);
   padding: 0.45rem;
   text-align: left;
-  color: #2f4f74;
+  color: var(--text-primary);
   font-size: 0.9rem;
 }
 .answer {
   margin-top: 0.8rem;
-  background: #f6faff;
-  border: 1px solid #dceaff;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
   padding: 0.75rem;
 }
-.answer h4 { margin: 0 0 0.4rem; color: #1f467d; }
-.answer p { margin: 0; color: #35577f; white-space: pre-wrap; }
+.answer h4 { margin: 0 0 0.4rem; color: var(--text-strong); }
+.answer p { margin: 0; color: var(--text-primary); white-space: pre-wrap; }
 .message { color: #28558e; margin: 0; font-weight: 600; }
-.cid { color: #5f7ea8; font-size: 0.88rem; word-break: break-all; }
+.cid { color: var(--text-muted); font-size: 0.88rem; word-break: break-all; }
 @media (max-width: 900px) {
   .date-grid { grid-template-columns: 1fr; }
 }

@@ -669,7 +669,7 @@ def _get_or_create_spending_guard(db: Session, user_wallet_address: str, currenc
         guard = SpendingGuard(
             user_wallet_address=user_wallet_address,
             currency=currency,
-            monthly_limit=0.0,
+            monthly_limit=500.0,
             spent_this_month=0.0,
             month_key=_current_month_key(),
         )
@@ -692,6 +692,8 @@ def _get_or_create_spending_guard(db: Session, user_wallet_address: str, currenc
 # Increase spending guard usage for outbound flows.
 def _apply_spending(db: Session, user_wallet_address: str, amount: float, currency: str) -> None:
     guard = _get_or_create_spending_guard(db, user_wallet_address, currency)
+    if (guard.currency or "").upper() != (currency or "").upper():
+        return
     guard.spent_this_month += float(amount)
     guard.updated_at = datetime.now(timezone.utc)
 
@@ -2406,6 +2408,9 @@ def set_spending_guard(payload: SpendingGuardSetRequest, db: Session = Depends(g
         raise HTTPException(status_code=400, detail="Invalid user_wallet_address")
 
     guard = _get_or_create_spending_guard(db, payload.user_wallet_address, payload.currency)
+    if (guard.currency or "").upper() != (payload.currency or "").upper():
+        guard.spent_this_month = 0.0
+        guard.month_key = _current_month_key()
     guard.currency = payload.currency
     guard.monthly_limit = payload.monthly_limit
     guard.updated_at = datetime.now(timezone.utc)
@@ -2524,6 +2529,7 @@ def get_dashboard(user_wallet_address: str, db: Session = Depends(get_db)) -> di
         .limit(5)
         .all()
     )
+    vendor_by_wallet = {row.wallet_address: row.display_name for row in db.query(Vendor).all()}
 
     activity_rows = (
         db.query(HistoryEvent)
@@ -2554,6 +2560,7 @@ def get_dashboard(user_wallet_address: str, db: Session = Depends(get_db)) -> di
                 {
                     "subscription_id": row.id,
                     "merchant_wallet_address": row.merchant_wallet_address,
+                    "vendor_name": vendor_by_wallet.get(row.merchant_wallet_address),
                     "amount_xrp": row.amount_xrp,
                     "next_payment_date": row.next_payment_date.isoformat(),
                     "escrow_status": row.escrow_status,

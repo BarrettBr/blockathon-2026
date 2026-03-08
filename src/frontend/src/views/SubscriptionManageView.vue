@@ -28,6 +28,14 @@ function formatStatusLabel(value: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function statusTone(value: string): string {
+  const v = String(value || "").toLowerCase();
+  if (["active", "approved", "validated", "success", "locked"].includes(v)) return "is-good";
+  if (["pending", "queued", "processing", "not_started"].includes(v)) return "is-warn";
+  if (["cancelled", "canceled", "failed", "error", "rejected", "expired"].includes(v)) return "is-bad";
+  return "is-neutral";
+}
+
 const sortedCurrentSubscriptions = computed(() => {
   const rows = [...subscription.list];
   const key = sortKey.value;
@@ -155,7 +163,7 @@ function explorerTxUrl(txHash: string): string {
 <template>
 	<section class="stack">
 		<article class="panel">
-			<h3>Manage Plans</h3>
+			<h3>Manage Subscriptions</h3>
 			<p>Connected wallet: <strong>{{ wallet.selectedWallet?.address || "No wallet selected" }}</strong></p>
 		</article>
 
@@ -184,7 +192,7 @@ function explorerTxUrl(txHash: string): string {
 							<td>{{ s.vendor_tx_id }}</td>
 							<td>{{ s.amount_xrp }} XRP</td>
 							<td>Every {{ s.interval_days }} day<span v-if="s.interval_days !== 1">s</span></td>
-							<td><span class="status-pill">{{ formatStatusLabel(s.request_status) }}</span></td>
+							<td><span class="status-pill" :class="statusTone(s.request_status)">{{ formatStatusLabel(s.request_status) }}</span></td>
 							<td class="actions">
 								<button class="compact" :disabled="approvingId === s.id" @click="approveRequest(s.id)">
                   {{ approvingId === s.id ? "Approving..." : "Approve" }}
@@ -225,21 +233,30 @@ function explorerTxUrl(txHash: string): string {
 						<tr v-for="s in sortedCurrentSubscriptions" :key="s.id">
 							<td>#{{ s.id }}</td>
 							<td>{{ s.vendor_tx_id }}</td>
-							<td><span class="status-pill">{{ formatStatusLabel(s.status) }}</span></td>
-							<td><span class="status-pill">{{ formatStatusLabel(s.request_status) }}</span></td>
+							<td><span class="status-pill" :class="statusTone(s.status)">{{ formatStatusLabel(s.status) }}</span></td>
+							<td><span class="status-pill" :class="statusTone(s.request_status)">{{ formatStatusLabel(s.request_status) }}</span></td>
 							<td>{{ s.amount_xrp }} XRP</td>
-							<td><span class="status-pill">{{ formatStatusLabel(s.escrow_status) }}</span></td>
+							<td><span class="status-pill" :class="statusTone(s.escrow_status)">{{ formatStatusLabel(s.escrow_status) }}</span></td>
 							<td>
 								<div v-if="s.last_tx_hash" class="tx-box">
 									<input :value="s.last_tx_hash" readonly />
-									<button class="compact ghost" @click="copyText(s.last_tx_hash)">Copy</button>
+									<button
+                    class="compact ghost icon-btn"
+                    title="Copy transaction hash"
+                    aria-label="Copy transaction hash"
+                    @click="copyText(s.last_tx_hash)"
+                  >
+                    <i class="pi pi-copy copy-icon"></i>
+                  </button>
                   <a
-                    class="compact ghost link-btn"
+                    class="compact ghost link-btn icon-btn"
                     :href="explorerTxUrl(s.last_tx_hash)"
                     target="_blank"
                     rel="noopener noreferrer"
+                    title="Open on explorer"
+                    aria-label="Open on explorer"
                   >
-                    View
+                    <i class="pi pi-external-link"></i>
                   </a>
 								</div>
 								<span v-else>-</span>
@@ -266,16 +283,16 @@ function explorerTxUrl(txHash: string): string {
 <style scoped>
 .stack { display: grid; gap: 1rem; }
 .panel {
-	background: rgba(255, 255, 255, 0.96);
-	border: 1px solid #dceaff;
+	background: var(--surface-panel);
+	border: 1px solid var(--border-color);
 	border-radius: 14px;
 	padding: 1rem;
 }
-h3 { margin: 0 0 0.7rem; color: #1f467d; }
-label { display: block; color: #47678f; font-size: 0.86rem; margin-bottom: 0.2rem; }
+h3 { margin: 0 0 0.7rem; color: var(--text-strong); }
+label { display: block; color: var(--text-muted); font-size: 0.86rem; margin-bottom: 0.2rem; }
 input {
 	width: 100%;
-	border: 1px solid #cfe0fb;
+	border: 1px solid var(--border-color);
 	border-radius: 8px;
 	padding: 0.5rem 0.65rem;
 }
@@ -290,7 +307,7 @@ input {
 	border: none;
 	border-radius: 8px;
 	padding: 0.38rem 0.62rem;
-	background: linear-gradient(130deg, #2c6fdf, #1f58bf);
+	background: linear-gradient(130deg, var(--accent-1), var(--accent-2));
 	color: #fff;
 	font-weight: 700;
 	font-size: 0.86rem;
@@ -300,30 +317,41 @@ input {
   cursor: not-allowed;
   opacity: 0.72;
 }
-.compact.secondary { background: #4f79b8; }
-.compact.danger { background: #c37a73; }
+.compact.secondary { background: var(--accent-2); }
+.compact.danger { background: var(--danger-bg); color: var(--btn-text); }
 .compact.danger-outline {
-	background: #f9fbff;
-	color: #8d5f5a;
-	border: 1px solid #d7b3ae;
+	background: var(--danger-bg-soft);
+	color: var(--danger-text);
+	border: 1px solid var(--danger-bg);
 }
 .compact.ghost {
-	background: #eef4ff;
-	color: #355a8f;
-	border: 1px solid #d6e4fb;
+	background: var(--surface-soft);
+	color: var(--text-muted);
+	border: 1px solid var(--border-color);
 }
 .compact.link-btn {
   text-decoration: none;
   display: inline-flex;
   align-items: center;
+  background: color-mix(in srgb, var(--accent-1) 14%, var(--surface-panel));
+  color: var(--accent-1);
+  border-color: color-mix(in srgb, var(--accent-1) 30%, var(--border-color));
 }
+.compact.icon-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.compact.icon-btn i { font-size: 0.72rem; }
+.compact.icon-btn i.copy-icon { font-size: 0.82rem; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; min-width: 900px; }
 th, td {
-	border-bottom: 1px solid #e4efff;
+	border-bottom: 1px solid var(--border-color);
 	padding: 0.45rem;
 	text-align: left;
-	color: #35577f;
+	color: var(--text-primary);
 	font-size: 0.9rem;
 }
 .th-sort {
@@ -338,13 +366,28 @@ th, td {
 .actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
 .status-pill {
   display: inline-block;
-  border: 1px solid #d7e5fb;
-  background: #f4f8ff;
+  border: 1px solid var(--border-color);
+  background: var(--surface-soft);
   border-radius: 999px;
   padding: 0.16rem 0.5rem;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #3b5f8f;
+  color: var(--text-muted);
+}
+.status-pill.is-good {
+  background: color-mix(in srgb, #22c55e 10%, var(--surface-panel));
+  border-color: color-mix(in srgb, #22c55e 22%, var(--border-color));
+  color: var(--text-primary);
+}
+.status-pill.is-warn {
+  background: color-mix(in srgb, #f59e0b 10%, var(--surface-panel));
+  border-color: color-mix(in srgb, #f59e0b 22%, var(--border-color));
+  color: var(--text-primary);
+}
+.status-pill.is-bad {
+  background: color-mix(in srgb, #ef4444 10%, var(--surface-panel));
+  border-color: color-mix(in srgb, #ef4444 22%, var(--border-color));
+  color: var(--text-primary);
 }
 .tx-box {
 	display: inline-flex;
@@ -357,9 +400,9 @@ th, td {
 	max-width: 210px;
 	padding: 0.28rem 0.45rem;
 	border-radius: 6px;
-	border: 1px solid #d6e4fb;
-	background: #f8fbff;
-	color: #35577f;
+	border: 1px solid var(--border-color);
+	background: var(--surface-soft);
+	color: var(--text-primary);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;

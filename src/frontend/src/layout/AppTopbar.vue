@@ -35,6 +35,12 @@ const walletBalance = computed(() => {
 });
 
 const accountLabel = computed(() => auth.username || "My Account");
+const themeIcon = computed(() =>
+  layout.theme === "dark" ? "pi pi-sun" : "pi pi-moon",
+);
+const themeLabel = computed(() =>
+  layout.theme === "dark" ? "Switch to light mode" : "Switch to dark mode",
+);
 
 onMounted(async () => {
   if (!wallet.aggregateBalance) {
@@ -53,10 +59,16 @@ watch(
 <template>
   <header class="topbar">
     <button class="menu-btn" @click="layout.toggleSidebar">☰</button>
-    <div class="title">EquiPay: Consumer Payments on XRPL</div>
+    <div class="brand">
+      <div class="title">EquiPay</div>
+      <div class="tagline">Bank-simple subscription payments on XRPL</div>
+    </div>
 
 	<div class="right">
 		<div class="balance">Balance: {{ walletBalance }} RLUSD</div>
+    <button class="theme-btn" :title="themeLabel" :aria-label="themeLabel" @click="layout.toggleTheme">
+      <i :class="themeIcon"></i>
+    </button>
 
 		<Button 
 			 text 
@@ -75,23 +87,24 @@ watch(
 
 <style scoped>
 .account-btn {
-  color: #345f94 !important;
+  color: var(--text-strong) !important;
   font-weight: 600 !important;
   padding: 0.5rem 0.75rem !important;
+  border-radius: 12px !important;
 }
 
 .account-btn:hover {
-  background: #ebf3ff !important;
+  background: var(--surface-soft) !important;
 }
 
 .topbar {
-  height: 68px;
-  border-bottom: 1px solid #d8e6ff;
+  height: 74px;
+  border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   gap: 1rem;
   padding: 0 1.25rem;
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--topbar-bg);
   backdrop-filter: blur(8px);
   position: fixed;
   top: 0;
@@ -102,8 +115,8 @@ watch(
 
 .menu-btn {
   border: none;
-  background: #ecf3ff;
-  color: #1f4f90;
+  background: var(--surface-soft);
+  color: var(--text-strong);
   border-radius: 8px;
   width: 34px;
   height: 34px;
@@ -113,9 +126,23 @@ watch(
 }
 
 .title {
-  color: #3b5f88;
+  color: var(--text-strong);
+  font-weight: 800;
+  font-size: 1.02rem;
+  line-height: 1.1;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.65rem;
+}
+
+.tagline {
+  color: var(--text-muted);
+  font-size: 0.82rem;
   font-weight: 600;
-  font-size: 0.98rem;
+  letter-spacing: 0.01em;
 }
 
 .right {
@@ -126,13 +153,31 @@ watch(
 }
 
 .balance {
-  color: #274f84;
+  color: var(--text-strong);
   font-weight: 700;
 }
 
 .account {
-  color: #345f94;
+  color: var(--text-strong);
   font-weight: 600;
+}
+
+.theme-btn {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--surface-panel);
+  color: var(--text-strong);
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.theme-btn:hover {
+  background: var(--surface-soft);
+  transform: translateY(-1px);
 }
 
 @media (max-width: 991px) {
@@ -146,6 +191,10 @@ watch(
   }
 
   .title {
+    font-size: 0.95rem;
+  }
+
+  .tagline {
     display: none;
   }
 
@@ -157,9 +206,9 @@ watch(
 
 /* --- POPUP MENU CONTAINER --- */
 :deep(.p-menu) {
-  background: #ffffff; /* Fix: Added missing background */
+  background: var(--surface-panel);
   min-width: 200px;
-  border: 1px solid #d8e6ff;
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08); /* Smoother shadow */
   padding: 0.5rem;
@@ -179,7 +228,7 @@ watch(
 }
 
 :deep(.p-menuitem-link) {
-  color: #345f94 !important;
+  color: var(--text-strong) !important;
   font-weight: 500;
   padding: 0.5rem 0.75rem; /* Consistent internal spacing */
   transition: background 0.2s, color 0.2s;
@@ -191,13 +240,13 @@ watch(
 }
 
 :deep(.p-menuitem-link:hover) {
-  background: #f0f7ff !important;
-  color: #1f4f90 !important;
+  background: var(--surface-soft) !important;
+  color: var(--text-strong) !important;
 }
 
 /* --- MENU SEPARATOR --- */
 :deep(.p-menu-separator) {
-  border-top: 1px solid #d8e6ff;
+  border-top: 1px solid var(--border-color);
   margin: 0.5rem 0;
 }
 </style>

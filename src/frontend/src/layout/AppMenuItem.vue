@@ -70,7 +70,7 @@ function toggle() {
   width: 100%;
   text-align: left;
   text-decoration: none;
-  color: #355278;
+  color: var(--text-muted);
   font-weight: 600;
   padding: 0.7rem 0.85rem;
   border-radius: 10px;
@@ -88,12 +88,12 @@ function toggle() {
 }
 
 .menu-item:hover {
-  background: #ebf3ff;
+  background: var(--surface-soft);
 }
 
 .menu-item.active {
-  background: #dfeeff;
-  color: #1c4581;
+  background: var(--surface-active);
+  color: var(--text-strong);
 }
 
 .submenu {
@@ -104,7 +104,7 @@ function toggle() {
 
 .submenu-item {
   text-decoration: none;
-  color: #50709b;
+  color: var(--text-muted);
   font-weight: 600;
   padding: 0.48rem 0.72rem;
   border-radius: 8px;
@@ -112,12 +112,12 @@ function toggle() {
 }
 
 .submenu-item:hover {
-  background: #edf4ff;
+  background: var(--surface-soft);
 }
 
 .submenu-item.active {
-  background: #dfeeff;
-  color: #1c4581;
+  background: var(--surface-active);
+  color: var(--text-strong);
 }
 
 .caret {

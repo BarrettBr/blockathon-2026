@@ -53,10 +53,10 @@ async function submit() {
 </template>
 
 <style scoped>
-.page { min-height: 100vh; display: grid; place-items: center; background: #f4f7ff; }
+.page { min-height: 100vh; display: grid; place-items: center; background: var(--app-bg); }
 .card {
-	background: white;
-	border: 1px solid #dceaff;
+	background: var(--surface-panel);
+	border: 1px solid var(--border-color);
 	border-radius: 12px;
 	padding: 2rem;
 	width: 100%;
@@ -66,11 +66,11 @@ async function submit() {
 	gap: 1rem;
 }
 .tabs { display: flex; gap: 0.5rem; }
-.tabs button { flex: 1; padding: 0.4rem; border: 1px solid #dceaff; border-radius: 6px; background: none; cursor: pointer; }
-.tabs button.active { background: #245cbf; color: white; border-color: #245cbf; }
+.tabs button { flex: 1; padding: 0.4rem; border: 1px solid var(--border-color); border-radius: 6px; background: none; cursor: pointer; }
+.tabs button.active { background: var(--accent-2); color: white; border-color: var(--accent-2); }
 .fields { display: flex; flex-direction: column; gap: 0.5rem; }
-.fields input { padding: 0.5rem 0.75rem; border: 1px solid #dceaff; border-radius: 6px; font-size: 0.95rem; }
-.submit { padding: 0.6rem; background: #245cbf; color: white; border: none; border-radius: 6px; font-weight: 700; cursor: pointer; }
+.fields input { padding: 0.5rem 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.95rem; }
+.submit { padding: 0.6rem; background: linear-gradient(130deg, var(--accent-1), var(--accent-2)); color: white; border: none; border-radius: 6px; font-weight: 700; cursor: pointer; }
 .submit:disabled { opacity: 0.6; }
 .error { color: #c0392b; font-size: 0.85rem; margin: 0; }
 </style>

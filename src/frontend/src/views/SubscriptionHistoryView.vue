@@ -35,6 +35,14 @@ function formatDateLabel(value: string): string {
   });
 }
 
+function statusTone(value: string): string {
+  const v = String(value || "").toLowerCase();
+  if (["active", "approved", "validated", "success", "locked"].includes(v)) return "is-good";
+  if (["pending", "queued", "processing", "not_started"].includes(v)) return "is-warn";
+  if (["cancelled", "canceled", "failed", "error", "rejected", "expired"].includes(v)) return "is-bad";
+  return "is-neutral";
+}
+
 async function copyText(value: string) {
   if (!value) return;
   await navigator.clipboard.writeText(value);
@@ -69,13 +77,24 @@ function explorerTxUrl(txHash: string): string {
             <td><span class="event-pill">{{ formatEventLabel(row.event_type) }}</span></td>
             <td>{{ row.vendor_name || row.note || "-" }}</td>
             <td>{{ row.amount ?? "-" }} {{ row.currency }}</td>
-            <td><span class="status-pill">{{ row.status }}</span></td>
+            <td><span class="status-pill" :class="statusTone(row.status)">{{ row.status }}</span></td>
             <td>{{ row.counterparty_address || "-" }}</td>
             <td>
               <div v-if="row.tx_hash" class="tx-box">
                 <input :value="row.tx_hash" readonly />
-                <button class="copy-btn" @click="copyText(row.tx_hash)">Copy</button>
-                <a class="copy-btn view-btn" :href="explorerTxUrl(row.tx_hash)" target="_blank" rel="noopener noreferrer">View</a>
+                <button class="copy-btn icon-btn" title="Copy transaction hash" aria-label="Copy transaction hash" @click="copyText(row.tx_hash)">
+                  <i class="pi pi-copy copy-icon"></i>
+                </button>
+                <a
+                  class="copy-btn view-btn icon-btn"
+                  :href="explorerTxUrl(row.tx_hash)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open on explorer"
+                  aria-label="Open on explorer"
+                >
+                  <i class="pi pi-external-link"></i>
+                </a>
               </div>
               <span v-else>-</span>
             </td>
@@ -91,19 +110,19 @@ function explorerTxUrl(txHash: string): string {
 
 <style scoped>
 .panel {
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid #dceaff;
+  background: var(--surface-panel);
+  border: 1px solid var(--border-color);
   border-radius: 14px;
   padding: 1rem;
 }
-h3 { margin: 0 0 0.7rem; color: #1f467d; }
+h3 { margin: 0 0 0.7rem; color: var(--text-strong); }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; min-width: 820px; }
 th, td {
-  border-bottom: 1px solid #e4efff;
+  border-bottom: 1px solid var(--border-color);
   padding: 0.45rem;
   text-align: left;
-  color: #35577f;
+  color: var(--text-primary);
 }
 .tx-box {
   display: inline-flex;
@@ -115,19 +134,19 @@ th, td {
   width: 210px;
   max-width: 210px;
   padding: 0.25rem 0.45rem;
-  border: 1px solid #d6e4fb;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
-  background: #f8fbff;
-  color: #35577f;
+  background: var(--surface-soft);
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .copy-btn {
-  border: 1px solid #d6e4fb;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
-  background: #eef4ff;
-  color: #355a8f;
+  background: var(--surface-soft);
+  color: var(--text-muted);
   padding: 0.22rem 0.42rem;
   font-weight: 600;
   cursor: pointer;
@@ -135,16 +154,43 @@ th, td {
   display: inline-flex;
   align-items: center;
 }
-.view-btn { background: #f5f8ff; }
+.view-btn {
+  background: color-mix(in srgb, var(--accent-1) 14%, var(--surface-panel));
+  color: var(--accent-1);
+  border-color: color-mix(in srgb, var(--accent-1) 30%, var(--border-color));
+}
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.icon-btn i { font-size: 0.72rem; }
+.icon-btn i.copy-icon { font-size: 0.82rem; }
 .event-pill,
 .status-pill {
   display: inline-block;
-  border: 1px solid #d7e5fb;
-  background: #f4f8ff;
+  border: 1px solid var(--border-color);
+  background: var(--surface-soft);
   border-radius: 999px;
   padding: 0.16rem 0.5rem;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #3b5f8f;
+  color: var(--text-muted);
+}
+.status-pill.is-good {
+  background: color-mix(in srgb, #22c55e 10%, var(--surface-panel));
+  border-color: color-mix(in srgb, #22c55e 22%, var(--border-color));
+  color: var(--text-primary);
+}
+.status-pill.is-warn {
+  background: color-mix(in srgb, #f59e0b 10%, var(--surface-panel));
+  border-color: color-mix(in srgb, #f59e0b 22%, var(--border-color));
+  color: var(--text-primary);
+}
+.status-pill.is-bad {
+  background: color-mix(in srgb, #ef4444 10%, var(--surface-panel));
+  border-color: color-mix(in srgb, #ef4444 22%, var(--border-color));
+  color: var(--text-primary);
 }
 </style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useWalletStore } from "@/stores/wallet";
 import { useHistoryStore } from "@/stores/history";
 import apiHelper from "@/utils/apiHelper";
@@ -15,6 +15,7 @@ const reviewSummary = ref("");
 const reviewError = ref("");
 const selectedDays = ref(30);
 const selectedWallets = ref<string[]>([]);
+const historyFilter = ref<"all" | "payments" | "subscriptions">("all");
 
 async function load() {
   if (!wallet.selectedWallet) return;
@@ -70,6 +71,14 @@ function formatEventLabel(eventType: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function statusTone(value: string): string {
+  const v = String(value || "").toLowerCase();
+  if (["active", "approved", "validated", "success", "locked"].includes(v)) return "is-good";
+  if (["pending", "queued", "processing", "not_started"].includes(v)) return "is-warn";
+  if (["cancelled", "canceled", "failed", "error", "rejected", "expired"].includes(v)) return "is-bad";
+  return "is-neutral";
+}
+
 function formatDateLabel(value: string): string {
   if (!value) return "-";
   const dt = new Date(value);
@@ -90,15 +99,34 @@ async function copyText(value: string) {
 function explorerTxUrl(txHash: string): string {
   return getExplorerTxUrl(txHash);
 }
+
+const filteredEntries = computed(() => {
+  if (historyFilter.value === "all") return history.entries;
+  if (historyFilter.value === "payments") {
+    return history.entries.filter((row: any) =>
+      String(row.event_type || "").startsWith("payment_"),
+    );
+  }
+  return history.entries.filter((row: any) =>
+    String(row.event_type || "").startsWith("subscription_"),
+  );
+});
 </script>
 
 <template>
   <article class="panel">
     <div class="header-row">
       <h3>History</h3>
-      <button @click="openReview" :disabled="!wallet.selectedWallet">
-        ✨ AI Review
-      </button>
+      <div class="header-actions">
+        <div class="filter-toggle" role="tablist" aria-label="History Filter">
+          <button class="chip-btn" :class="{ active: historyFilter === 'all' }" @click="historyFilter = 'all'">All</button>
+          <button class="chip-btn" :class="{ active: historyFilter === 'payments' }" @click="historyFilter = 'payments'">Payments</button>
+          <button class="chip-btn" :class="{ active: historyFilter === 'subscriptions' }" @click="historyFilter = 'subscriptions'">Subscriptions</button>
+        </div>
+        <button @click="openReview" :disabled="!wallet.selectedWallet">
+          ✨ AI Review
+        </button>
+      </div>
     </div>
 
     <div class="table-wrap">
@@ -114,22 +142,33 @@ function explorerTxUrl(txHash: string): string {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in history.entries" :key="row.id">
+        <tr v-for="row in filteredEntries" :key="row.id">
           <td>{{ formatDateLabel(row.created_at) }}</td>
           <td><span class="event-pill">{{ formatEventLabel(row.event_type) }}</span></td>
           <td>{{ row.vendor_name || row.note || "-" }}</td>
           <td>{{ row.amount ?? "-" }} {{ row.currency }}</td>
-          <td><span class="status-pill">{{ row.status }}</span></td>
+          <td><span class="status-pill" :class="statusTone(row.status)">{{ row.status }}</span></td>
           <td>
             <div v-if="row.tx_hash" class="tx-box">
               <input :value="row.tx_hash" readonly />
-              <button class="copy-btn" @click="copyText(row.tx_hash)">Copy</button>
-              <a class="copy-btn view-btn" :href="explorerTxUrl(row.tx_hash)" target="_blank" rel="noopener noreferrer">View</a>
+              <button class="copy-btn icon-btn" title="Copy transaction hash" aria-label="Copy transaction hash" @click="copyText(row.tx_hash)">
+                <i class="pi pi-copy copy-icon"></i>
+              </button>
+              <a
+                class="copy-btn view-btn icon-btn"
+                :href="explorerTxUrl(row.tx_hash)"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open on explorer"
+                aria-label="Open on explorer"
+              >
+                <i class="pi pi-external-link"></i>
+              </a>
             </div>
             <span v-else>-</span>
           </td>
         </tr>
-        <tr v-if="history.entries.length === 0">
+        <tr v-if="filteredEntries.length === 0">
           <td colspan="6">No payment or subscription activity yet.</td>
         </tr>
       </tbody>
@@ -202,8 +241,8 @@ function explorerTxUrl(txHash: string): string {
 
 <style scoped>
 .panel {
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid #dceaff;
+  background: var(--surface-panel);
+  border: 1px solid var(--border-color);
   border-radius: 14px;
   padding: 1rem;
 }
@@ -211,17 +250,43 @@ function explorerTxUrl(txHash: string): string {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.75rem;
   margin-bottom: 0.7rem;
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.filter-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 0.15rem;
+  background: var(--surface-soft);
+}
+.chip-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 0.26rem 0.58rem;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.chip-btn.active {
+  background: var(--surface-panel);
+  color: var(--text-strong);
 }
 h3 {
   margin: 0;
-  color: #1f467d;
+  color: var(--text-strong);
 }
 button {
   border: none;
   border-radius: 10px;
   padding: 0.45rem 0.85rem;
-  background: linear-gradient(130deg, #2c6fdf, #1f58bf);
+  background: linear-gradient(130deg, var(--accent-1), var(--accent-2));
   color: #fff;
   font-weight: 700;
   cursor: pointer;
@@ -238,10 +303,10 @@ table {
 }
 th,
 td {
-  border-bottom: 1px solid #e4efff;
+  border-bottom: 1px solid var(--border-color);
   padding: 0.5rem;
   text-align: left;
-  color: #35577f;
+  color: var(--text-primary);
 }
 .table-wrap {
   overflow-x: auto;
@@ -249,13 +314,28 @@ td {
 .event-pill,
 .status-pill {
   display: inline-block;
-  border: 1px solid #d7e5fb;
-  background: #f4f8ff;
+  border: 1px solid var(--border-color);
+  background: var(--surface-soft);
   border-radius: 999px;
   padding: 0.16rem 0.5rem;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #3b5f8f;
+  color: var(--text-muted);
+}
+.status-pill.is-good {
+  background: color-mix(in srgb, #22c55e 10%, var(--surface-panel));
+  border-color: color-mix(in srgb, #22c55e 22%, var(--border-color));
+  color: var(--text-primary);
+}
+.status-pill.is-warn {
+  background: color-mix(in srgb, #f59e0b 10%, var(--surface-panel));
+  border-color: color-mix(in srgb, #f59e0b 22%, var(--border-color));
+  color: var(--text-primary);
+}
+.status-pill.is-bad {
+  background: color-mix(in srgb, #ef4444 10%, var(--surface-panel));
+  border-color: color-mix(in srgb, #ef4444 22%, var(--border-color));
+  color: var(--text-primary);
 }
 .tx-box {
   display: inline-flex;
@@ -267,19 +347,19 @@ td {
   width: 210px;
   max-width: 210px;
   padding: 0.25rem 0.45rem;
-  border: 1px solid #d6e4fb;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
-  background: #f8fbff;
-  color: #35577f;
+  background: var(--surface-soft);
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .copy-btn {
-  border: 1px solid #d6e4fb;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
-  background: #eef4ff;
-  color: #355a8f;
+  background: var(--surface-soft);
+  color: var(--text-muted);
   padding: 0.22rem 0.42rem;
   font-weight: 600;
   cursor: pointer;
@@ -287,7 +367,19 @@ td {
   display: inline-flex;
   align-items: center;
 }
-.view-btn { background: #f5f8ff; }
+.view-btn {
+  background: color-mix(in srgb, var(--accent-1) 14%, var(--surface-panel));
+  color: var(--accent-1);
+  border-color: color-mix(in srgb, var(--accent-1) 30%, var(--border-color));
+}
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.icon-btn i { font-size: 0.72rem; }
+.icon-btn i.copy-icon { font-size: 0.82rem; }
 
 /* Modal */
 .modal-backdrop {
@@ -300,7 +392,7 @@ td {
   z-index: 1000;
 }
 .modal {
-  background: #fff;
+  background: var(--surface-panel);
   border-radius: 16px;
   width: min(680px, 95vw);
   max-height: 85vh;
@@ -314,23 +406,23 @@ td {
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.2rem;
-  border-bottom: 1px solid #e4efff;
+  border-bottom: 1px solid var(--border-color);
 }
 .modal-header h3 {
   margin: 0;
-  color: #1f467d;
+  color: var(--text-strong);
 }
 .close {
   background: none;
   border: none;
   font-size: 1.1rem;
-  color: #7090b0;
+  color: var(--text-muted);
   cursor: pointer;
   padding: 0.2rem 0.4rem;
 }
 .modal-controls {
   padding: 0.9rem 1.2rem;
-  border-bottom: 1px solid #e4efff;
+  border-bottom: 1px solid var(--border-color);
   display: flex;
   gap: 1rem;
   align-items: flex-end;
@@ -343,13 +435,13 @@ td {
 }
 .control-group label {
   font-size: 0.83rem;
-  color: #47678f;
+  color: var(--text-muted);
 }
 select {
-  border: 1px solid #cfe0fb;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 0.4rem 0.6rem;
-  color: #2f4f74;
+  color: var(--text-primary);
 }
 .wallet-checkboxes {
   display: flex;
@@ -361,11 +453,11 @@ select {
   align-items: center;
   gap: 0.4rem;
   font-size: 0.88rem;
-  color: #2f4f74;
+  color: var(--text-primary);
   cursor: pointer;
 }
 .addr {
-  color: #8aa8cc;
+  color: var(--text-muted);
   font-size: 0.8rem;
 }
 .refresh-btn {
@@ -382,13 +474,13 @@ select {
   align-items: center;
   gap: 0.8rem;
   padding: 2rem;
-  color: #47678f;
+  color: var(--text-muted);
 }
 .spinner {
   width: 32px;
   height: 32px;
-  border: 3px solid #dceaff;
-  border-top-color: #2c6fdf;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--accent-1);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -401,7 +493,7 @@ select {
   white-space: pre-wrap;
   font-family: inherit;
   font-size: 0.92rem;
-  color: #2f4f74;
+  color: var(--text-primary);
   line-height: 1.6;
   margin: 0;
 }
@@ -410,6 +502,17 @@ select {
   font-weight: 600;
 }
 .empty {
-  color: #8aa8cc;
+  color: var(--text-muted);
+}
+@media (max-width: 900px) {
+  .header-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .header-actions {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
 }
 </style>

@@ -174,14 +174,14 @@ watch(
 <template>
   <section class="wallet-stack">
     <article class="panel">
-      <h3>Add Wallet</h3>
+      <h3>Connect a Wallet</h3>
       <label>Secret Seed</label>
       <input v-model="seedInput" placeholder="sEdExample..." />
 
       <label>Wallet Nickname</label>
       <input v-model="nicknameInput" placeholder="Main Wallet" />
 
-      <button @click="connectWallet" :disabled="loading">Add Wallet</button>
+      <button class="btn btn-primary" @click="connectWallet" :disabled="loading">Connect Wallet</button>
     </article>
 
     <article class="panel">
@@ -205,8 +205,8 @@ watch(
               <td>{{ w.nickname }}</td>
               <td>{{ w.address }}</td>
               <td class="actions">
-                <button class="small" @click="wallet.selectWallet(w.link_id)">Use this Wallet</button>
-                <button class="small danger" @click="removeWallet(w.link_id)">Remove</button>
+                <button class="btn btn-secondary btn-sm" @click="wallet.selectWallet(w.link_id)">Use this Wallet</button>
+                <button class="btn btn-danger btn-sm" @click="removeWallet(w.link_id)">Delete</button>
               </td>
             </tr>
             <tr v-if="wallet.wallets.length === 0">
@@ -217,9 +217,9 @@ watch(
       </div>
 
       <div class="pagination">
-        <button class="small" :disabled="wallet.page <= 1" @click="prevPage">Prev</button>
+        <button class="btn btn-ghost btn-sm" :disabled="wallet.page <= 1" @click="prevPage">Prev</button>
         <span>Page {{ wallet.page }} / {{ wallet.pages || 1 }}</span>
-        <button class="small" :disabled="wallet.page >= wallet.pages" @click="nextPage">Next</button>
+        <button class="btn btn-ghost btn-sm" :disabled="wallet.page >= wallet.pages" @click="nextPage">Next</button>
       </div>
     </article>
 
@@ -232,10 +232,10 @@ watch(
     </article>
 
     <article class="panel">
-      <h3>Add Demo RLUSD</h3>
+      <h3>Get Demo RLUSD</h3>
       <label>Amount to Add</label>
       <input v-model.number="bootstrapAmount" type="number" min="0.000001" step="0.000001" />
-      <button @click="bootstrapRlusd" :disabled="loading || !wallet.selectedWallet">Add RLUSD</button>
+      <button class="btn btn-primary" @click="bootstrapRlusd" :disabled="loading || !wallet.selectedWallet">Add RLUSD</button>
     </article>
 
     <article class="panel">
@@ -250,13 +250,13 @@ watch(
         <div class="field">
           <label>XRP Amount</label>
           <input v-model.number="xrpAmount" type="number" min="0.000001" step="0.000001" />
-          <button @click="sendXrp" :disabled="loading || !destination || !wallet.selectedWallet">Send XRP</button>
+          <button class="btn btn-primary" @click="sendXrp" :disabled="loading || !destination || !wallet.selectedWallet">Send XRP</button>
         </div>
 
         <div class="field">
           <label>RLUSD Amount</label>
           <input v-model.number="rlusdAmount" type="number" min="0.000001" step="0.000001" />
-          <button @click="sendRlusd" :disabled="loading || !destination || !wallet.selectedWallet">Send RLUSD</button>
+          <button class="btn btn-primary" @click="sendRlusd" :disabled="loading || !destination || !wallet.selectedWallet">Send RLUSD</button>
         </div>
       </div>
 
@@ -268,38 +268,68 @@ watch(
 <style scoped>
 .wallet-stack { display: grid; gap: 1rem; }
 .panel {
-  background: rgba(255, 255, 255, 0.97);
-  border: 1px solid #dceaff;
+  background: var(--surface-panel);
+  border: 1px solid var(--border-color);
   border-radius: 14px;
   padding: 1rem;
   display: grid;
   gap: 0.55rem;
   align-content: start;
 }
-h3 { margin: 0 0 0.25rem; color: #1f467d; }
-label { color: #47678f; font-size: 0.88rem; }
+h3 { margin: 0 0 0.25rem; color: var(--text-strong); }
+label { color: var(--text-muted); font-size: 0.88rem; }
 input {
-  border: 1px solid #cfe0fb;
+  border: 1px solid var(--border-color);
   border-radius: 10px;
   padding: 0.55rem 0.7rem;
 }
-button {
+.btn {
   border: none;
-  border-radius: 10px;
-  padding: 0.55rem 0.85rem;
-  background: linear-gradient(130deg, #2c6fdf, #1f58bf);
-  color: #fff;
+  border-radius: 12px;
+  padding: 0.52rem 0.92rem;
   font-weight: 700;
+  letter-spacing: 0.01em;
   cursor: pointer;
   width: fit-content;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-.small {
-  padding: 0.34rem 0.6rem;
-  border-radius: 8px;
-  background: #5e86bf;
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-primary {
+  background: linear-gradient(130deg, var(--accent-1), var(--accent-2));
+  color: #fff;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent-1) 24%, transparent);
 }
-.danger { background: #cf6f6a; }
+.btn-secondary {
+  background: color-mix(in srgb, var(--accent-1) 12%, var(--surface-panel));
+  border: 1px solid color-mix(in srgb, var(--accent-1) 28%, var(--border-color));
+  color: var(--accent-1);
+}
+.btn-danger {
+  background: color-mix(in srgb, var(--danger-bg) 10%, var(--surface-panel));
+  border: 1px solid color-mix(in srgb, var(--danger-bg) 24%, var(--border-color));
+  color: var(--danger-bg);
+}
+.btn-ghost {
+  background: var(--surface-soft);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+}
+.btn-sm {
+  padding: 0.4rem 0.74rem;
+  border-radius: 10px;
+  font-size: 0.95rem;
+}
+.btn:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(12, 35, 64, 0.12);
+}
+.btn-ghost:not(:disabled):hover {
+  box-shadow: none;
+}
+.btn-secondary:not(:disabled):hover,
+.btn-danger:not(:disabled):hover {
+  box-shadow: none;
+}
 .summary-chips {
   display: flex;
   gap: 0.5rem;
@@ -307,30 +337,30 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .chip {
   border-radius: 999px;
-  border: 1px solid #d6e4fb;
-  background: #eef4ff;
-  color: #355a8f;
+  border: 1px solid var(--border-color);
+  background: var(--surface-soft);
+  color: var(--text-muted);
   padding: 0.2rem 0.55rem;
   font-size: 0.82rem;
   font-weight: 700;
 }
-.meta { color: #284a73; font-size: 0.92rem; word-break: break-all; margin: 0; }
+.meta { color: var(--text-primary); font-size: 0.92rem; word-break: break-all; margin: 0; }
 .value-chip {
   border-radius: 999px;
-  border: 1px solid #d6e4fb;
-  background: #f4f8ff;
-  color: #355a8f;
+  border: 1px solid var(--border-color);
+  background: var(--surface-soft);
+  color: var(--text-muted);
   padding: 0.12rem 0.52rem;
   font-weight: 700;
 }
-.hint { margin: 0; color: #3d6191; font-size: 0.87rem; }
+.hint { margin: 0; color: var(--text-muted); font-size: 0.87rem; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 .field { display: grid; gap: 0.45rem; }
-.message { color: #28558e; font-weight: 600; min-height: 1.2rem; margin: 0; }
+.message { color: var(--text-primary); font-weight: 600; min-height: 1.2rem; margin: 0; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; min-width: 560px; }
-th, td { border-bottom: 1px solid #e4efff; padding: 0.45rem; text-align: left; color: #2f4f74; }
+th, td { border-bottom: 1px solid var(--border-color); padding: 0.45rem; text-align: left; color: var(--text-primary); }
 .actions { display: flex; gap: 0.45rem; flex-wrap: wrap; }
-.pagination { display: flex; gap: 0.75rem; align-items: center; margin-top: 0.5rem; color: #3f628f; }
+.pagination { display: flex; gap: 0.75rem; align-items: center; margin-top: 0.5rem; color: var(--text-muted); }
 @media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
 </style>

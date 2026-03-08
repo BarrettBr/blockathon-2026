@@ -9,6 +9,11 @@ import Aura from '@primevue/themes/aura';
 import App from "./App.vue";
 import router from "./router";
 
+const initialTheme = localStorage.getItem("theme");
+const themeClass = initialTheme === "dark" ? "theme-dark" : "theme-light";
+document.documentElement.classList.remove("theme-light", "theme-dark");
+document.documentElement.classList.add(themeClass);
+
 const app = createApp(App);
 
 app.use(createPinia());
@@ -17,7 +22,7 @@ app.use(PrimeVue, {
     theme: {
         preset: Aura,
 		options: {
-			darkModeSelector: false
+			darkModeSelector: ".theme-dark"
 		}
     }
 });

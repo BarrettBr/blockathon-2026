@@ -29,8 +29,8 @@ const layout = useLayoutStore();
   position: fixed;
   inset: 0 auto 0 0;
   width: 260px;
-  background: linear-gradient(180deg, #f7fbff 0%, #edf4ff 100%);
-  border-right: 1px solid #d8e6ff;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border-color);
   padding: 1rem;
   display: grid;
   grid-template-rows: auto 1fr auto;
@@ -50,7 +50,7 @@ const layout = useLayoutStore();
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: linear-gradient(145deg, #2563eb, #1f57c8);
+  background: linear-gradient(145deg, var(--accent-1), var(--accent-2));
   color: white;
   font-weight: 800;
   display: grid;
@@ -60,13 +60,13 @@ const layout = useLayoutStore();
 
 .wordmark {
   font-weight: 800;
-  color: #20436f;
+  color: var(--text-strong);
   font-size: 1.2rem;
 }
 
 .footer {
   font-size: 0.78rem;
-  color: #4b6f9d;
+  color: var(--text-muted);
   padding: 0.3rem;
 }
 

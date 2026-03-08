@@ -7,21 +7,64 @@
 }
 
 :root {
+  font-family: "Manrope", "SF Pro Display", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+
+:root.theme-light {
   color-scheme: light;
-  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --app-bg: radial-gradient(circle at 8% 2%, #f5faff 0%, #eef4ff 32%, #e6f0ff 100%);
+  --sidebar-bg: linear-gradient(180deg, rgba(247, 251, 255, 0.94) 0%, rgba(237, 244, 255, 0.94) 100%);
+  --topbar-bg: rgba(255, 255, 255, 0.86);
+  --surface-panel: rgba(255, 255, 255, 0.92);
+  --surface-soft: rgba(225, 237, 255, 0.72);
+  --surface-active: rgba(205, 226, 255, 0.8);
+  --border-color: #cddffb;
+  --text-primary: #24476f;
+  --text-strong: #123b6b;
+  --text-muted: #496a94;
+  --accent-1: #2e6ff0;
+  --accent-2: #1f57c8;
+  --btn-text: #ffffff;
+  --danger-bg: #cf6f7d;
+  --danger-bg-soft: #efd7d4;
+  --danger-text: #7a3d37;
+}
+
+:root.theme-dark {
+  color-scheme: dark;
+  --app-bg: radial-gradient(circle at 4% -8%, #173055 0%, #102540 38%, #0a1a2f 100%);
+  --sidebar-bg: linear-gradient(180deg, rgba(17, 35, 59, 0.95) 0%, rgba(11, 27, 49, 0.95) 100%);
+  --topbar-bg: rgba(12, 26, 45, 0.8);
+  --surface-panel: rgba(18, 35, 58, 0.88);
+  --surface-soft: rgba(40, 69, 106, 0.55);
+  --surface-active: rgba(47, 84, 132, 0.68);
+  --border-color: #2e4e78;
+  --text-primary: #d7e7ff;
+  --text-strong: #f2f7ff;
+  --text-muted: #aac4e8;
+  --accent-1: #4e8dff;
+  --accent-2: #2b67d8;
+  --btn-text: #ffffff;
+  --danger-bg: #bc6f7a;
+  --danger-bg-soft: #4f2f31;
+  --danger-text: #ffd6d2;
 }
 
 html {
-  /* Set a solid base color to match your gradient's end point */
-  background-color: #dbeaff; 
+  background: var(--app-bg);
   height: 100%;
+  scroll-behavior: smooth;
 }
 
 body {
   margin: 0;
   padding: 0;
   min-height: 100vh;
-  color: #2f4f74;
+  color: var(--text-primary);
+  background: var(--app-bg);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 #app {
@@ -30,6 +73,62 @@ body {
 
 input,
 button,
-select {
+select,
+textarea {
   font: inherit;
+}
+
+input,
+textarea,
+select {
+  background: var(--surface-panel);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent-1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-1) 20%, transparent);
+}
+
+button {
+  transition: all 0.2s ease;
+}
+
+button:not(:disabled):hover {
+  filter: brightness(1.05);
+}
+
+button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.panel {
+  background: var(--surface-panel) !important;
+  border: 1px solid var(--border-color) !important;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 30px rgba(8, 28, 56, 0.08);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.panel:hover {
+  box-shadow: 0 12px 34px rgba(8, 28, 56, 0.12);
+}
+
+th {
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+tbody tr {
+  transition: background 0.18s ease;
+}
+
+tbody tr:hover {
+  background: color-mix(in srgb, var(--surface-soft) 70%, transparent);
 }
