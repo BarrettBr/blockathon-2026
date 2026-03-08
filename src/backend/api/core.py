@@ -13,7 +13,7 @@ from urllib import error as urllib_error
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import Depends, HTTPException, Query, Request
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from xrpl.clients import JsonRpcClient
@@ -50,7 +50,6 @@ from db import (
     get_db,
 )
 from schemas import (
-    ApiResponse,
     BootstrapRlusdRequest,
     PaymentSendRequest,
     RlusdPaymentSendRequest,
@@ -67,9 +66,6 @@ from schemas import (
     WalletConnectRequest,
     WalletImportRequest,
 )
-
-
-router = APIRouter()
 
 # Look up stored seed for a wallet address, raising clearly if missing.
 def _get_seed_for_address(db: Session, address: str) -> str:
@@ -1115,7 +1111,6 @@ def _subscription_to_dict(row: Subscription) -> dict[str, Any]:
 
 
 # Health endpoint and XRPL connectivity probe.
-@router.get("/health", response_model=ApiResponse)
 def health() -> dict[str, Any]:
     xrpl_ready = True
     xrpl_error = None
@@ -1140,7 +1135,6 @@ def health() -> dict[str, Any]:
 
 
 # Create a new network wallet and optionally fund with faucet.
-@router.post("/wallets/create", response_model=ApiResponse)
 def create_wallet(db: Session = Depends(get_db)) -> dict[str, Any]:
     client = _get_xrpl_client()
 
@@ -1187,8 +1181,6 @@ def create_wallet(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 # Import wallet from seed and persist it for demo use.
-@router.post("/wallets/import", response_model=ApiResponse)
-@router.post("/wallets/import", response_model=ApiResponse)
 def import_wallet(payload: WalletImportRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     wallet = _wallet_from_seed(payload.seed)
     wallet_row = _save_or_get_wallet(db, wallet.classic_address, payload.seed)
@@ -1302,7 +1294,6 @@ def delete_connected_wallet(link_id: int, current_user: UserProfile, db: Session
 
 
 # Bootstrap RLUSD readiness: trust line + mint for an imported wallet.
-@router.post("/wallets/bootstrap-rlusd", response_model=ApiResponse)
 def bootstrap_rlusd_wallet(
     payload: BootstrapRlusdRequest,
     db: Session = Depends(get_db),
@@ -1343,7 +1334,6 @@ def bootstrap_rlusd_wallet(
     )
 
 # List all known wallets in local SQLite.
-@router.get("/wallets", response_model=ApiResponse)
 def list_wallets(db: Session = Depends(get_db)) -> dict[str, Any]:
     rows = db.query(Wallet).order_by(Wallet.created_at.desc()).all()
     return _success(
@@ -1361,7 +1351,6 @@ def list_wallets(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 # Get XRP and RLUSD balances for a wallet address.
-@router.get("/wallets/{address}/balance", response_model=ApiResponse)
 def get_wallet_balance(address: str) -> dict[str, Any]:
     if not _is_valid_classic_address(address):
         raise HTTPException(status_code=400, detail="Invalid wallet address")
@@ -1432,7 +1421,6 @@ def get_aggregate_wallet_balance(current_user: UserProfile, db: Session) -> dict
 
 
 # Submit one XRP payment and store transaction summary.
-@router.post("/payments/send", response_model=ApiResponse)
 def send_payment(
     payload: PaymentSendRequest,
     db: Session = Depends(get_db),
@@ -1504,7 +1492,6 @@ def send_payment(
 
 
 # Send RLUSD/issued-currency payment and persist to history.
-@router.post("/payments/send-rlusd", response_model=ApiResponse)
 def send_rlusd_payment(
     payload: RlusdPaymentSendRequest,
     db: Session = Depends(get_db),
@@ -1579,7 +1566,6 @@ def send_rlusd_payment(
 
 
 # List all locally stored payment/transaction records.
-@router.get("/payments", response_model=ApiResponse)
 def list_payments(db: Session = Depends(get_db)) -> dict[str, Any]:
     rows = db.query(Transaction).order_by(Transaction.created_at.desc()).all()
     return _success(
@@ -1601,7 +1587,6 @@ def list_payments(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 # Fetch one XRPL transaction and return summarized metadata.
-@router.get("/payments/{tx_hash}", response_model=ApiResponse)
 def get_payment(tx_hash: str) -> dict[str, Any]:
     client = _get_xrpl_client()
 
@@ -2416,7 +2401,6 @@ def process_subscription_cycle(
 
 
 # Configure monthly spending guard values for a user.
-@router.post("/spending-guard/set", response_model=ApiResponse)
 def set_spending_guard(payload: SpendingGuardSetRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     if not _is_valid_classic_address(payload.user_wallet_address):
         raise HTTPException(status_code=400, detail="Invalid user_wallet_address")
@@ -2442,7 +2426,6 @@ def set_spending_guard(payload: SpendingGuardSetRequest, db: Session = Depends(g
 
 
 # Fetch spending guard for a user.
-@router.get("/spending-guard/{user_wallet_address}", response_model=ApiResponse)
 def get_spending_guard(user_wallet_address: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     guard = _get_or_create_spending_guard(db, user_wallet_address, settings.RLUSD_CURRENCY)
     return _success(
@@ -2459,7 +2442,6 @@ def get_spending_guard(user_wallet_address: str, db: Session = Depends(get_db)) 
 
 
 # Return sorted history rows for a user dashboard.
-@router.get("/history/{user_wallet_address}", response_model=ApiResponse)
 def get_user_history(
     user_wallet_address: str,
     limit: int = Query(default=50, ge=1, le=500),
@@ -2502,7 +2484,6 @@ def get_user_history(
 
 
 # Return dashboard aggregates for frontend cards/charts.
-@router.get("/dashboard/{user_wallet_address}", response_model=ApiResponse)
 def get_dashboard(user_wallet_address: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     if not _is_valid_classic_address(user_wallet_address):
         raise HTTPException(status_code=400, detail="Invalid user wallet address")
