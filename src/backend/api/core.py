@@ -208,6 +208,23 @@ def _vendor_photo_url(filename: str) -> str:
     return f"{base}/static/vendor-photos/{filename}"
 
 
+def _escrow_destination_address(subscription: Subscription) -> str:
+    operator_address = settings.OPERATOR_WALLET_ADDRESS.strip()
+    operator_seed = settings.OPERATOR_WALLET_SEED.strip()
+    if operator_address and operator_seed:
+        return operator_address
+    return subscription.merchant_wallet_address
+
+
+def _escrow_finish_seed(default_seed: str) -> str:
+    operator_address = settings.OPERATOR_WALLET_ADDRESS.strip()
+    operator_seed = settings.OPERATOR_WALLET_SEED.strip()
+    if operator_address and operator_seed:
+        _assert_seed_matches_address(operator_seed, operator_address, "OPERATOR_WALLET_ADDRESS")
+        return operator_seed
+    return default_seed
+
+
 def _normalize_vendor_webhook_url(webhook_url: Optional[str], requested_secret: str, final_secret: str) -> Optional[str]:
     if not webhook_url:
         return webhook_url
@@ -1166,8 +1183,9 @@ def _create_subscription_cycle_with_escrow(
     user_wallet = _wallet_from_seed(user_seed)
     if user_wallet.classic_address != subscription.user_wallet_address:
         raise HTTPException(status_code=400, detail="Provided seed does not match subscription user wallet")
-    if not _is_valid_classic_address(subscription.merchant_wallet_address):
-        raise HTTPException(status_code=400, detail="Invalid merchant wallet address")
+    escrow_destination = _escrow_destination_address(subscription)
+    if not _is_valid_classic_address(escrow_destination):
+        raise HTTPException(status_code=400, detail="Invalid escrow destination wallet address")
 
     client = _get_xrpl_client()
     now_utc = datetime.now(timezone.utc)
@@ -1176,7 +1194,7 @@ def _create_subscription_cycle_with_escrow(
 
     tx = EscrowCreate(
         account=user_wallet.classic_address,
-        destination=subscription.merchant_wallet_address,
+        destination=escrow_destination,
         amount=_xrp_to_drops(settings.SUBSCRIPTION_ESCROW_LOCK_XRP),
         finish_after=datetime_to_ripple_time(finish_after_dt),
         cancel_after=datetime_to_ripple_time(cancel_after_dt),
@@ -1197,7 +1215,7 @@ def _create_subscription_cycle_with_escrow(
                 status_code=400,
                 detail=(
                     f"Escrow create failed with tecNO_PERMISSION for destination "
-                    f"{subscription.merchant_wallet_address}. The vendor wallet likely blocks incoming deposits "
+                    f"{escrow_destination}. The escrow destination wallet likely blocks incoming deposits "
                     f"(DepositAuth) or requires preauthorization."
                 ),
             ) from exc
@@ -1211,7 +1229,7 @@ def _create_subscription_cycle_with_escrow(
                 status_code=400,
                 detail=(
                     f"Escrow create failed with tecNO_PERMISSION for destination "
-                    f"{subscription.merchant_wallet_address}. The vendor wallet likely blocks incoming deposits "
+                    f"{escrow_destination}. The escrow destination wallet likely blocks incoming deposits "
                     f"(DepositAuth) or requires preauthorization."
                 ),
             )
@@ -2833,12 +2851,13 @@ def claim_subscription_cycle(
         vendor = db.query(Vendor).filter(Vendor.id == subscription.vendor_id).first()
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
+    claimer_seed = _escrow_finish_seed(payload.vendor_seed)
 
     release = _release_locked_cycle_and_settle_rlusd(
         db=db,
         subscription=subscription,
         cycle=cycle,
-        claimer_seed=payload.vendor_seed,
+        claimer_seed=claimer_seed,
     )
     finish_hash = release["finish_hash"]
     settlement = release["settlement"]
@@ -2995,7 +3014,8 @@ def process_subscription_cycle(
             detail="Latest cycle is still locked. Claim or refund it before creating a new cycle.",
         )
     next_cycle_index = (latest_cycle.cycle_index + 1) if latest_cycle else 1
-    period_start = _as_utc(subscription.next_payment_date) or datetime.now(timezone.utc)
+    next_due = _as_utc(subscription.next_payment_date) or datetime.now(timezone.utc)
+    period_start = max(next_due, datetime.now(timezone.utc))
     period_end = period_start + timedelta(seconds=_subscription_interval_seconds(subscription))
 
     cycle_row = _create_subscription_cycle_with_escrow(
@@ -3110,7 +3130,7 @@ def auto_process_due_subscription_cycles(db: Session) -> dict[str, int]:
                     db=db,
                     subscription=subscription,
                     cycle=cycle,
-                    claimer_seed=user_seed,
+                    claimer_seed=_escrow_finish_seed(user_seed),
                 )
                 processed += 1
             except Exception as exc:
