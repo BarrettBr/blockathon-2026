@@ -9,17 +9,38 @@ const wallet = useWalletStore();
 const subscription = useSubscriptionStore();
 
 const auth = useAuthStore();
-const message = ref("");
-const errorMessage = ref("");
+const toast = ref<{ visible: boolean; tone: "success" | "error" | "info"; text: string }>({
+  visible: false,
+  tone: "info",
+  text: "",
+});
+let toastTimer: number | null = null;
 const pendingRefreshing = ref(false);
 const approvingId = ref<number | null>(null);
 const cancellingId = ref<number | null>(null);
 const sortKey = ref<"id" | "vendor_tx_id" | "status" | "request_status" | "amount_xrp" | "escrow_status">("id");
 const sortDir = ref<"asc" | "desc">("desc");
 
+function showToast(
+  text: string,
+  tone: "success" | "error" | "info" = "info",
+  duration: number | null = 3200,
+) {
+  toast.value = { visible: true, tone, text };
+  if (toastTimer) {
+    window.clearTimeout(toastTimer);
+    toastTimer = null;
+  }
+  if (duration !== null) {
+    toastTimer = window.setTimeout(() => {
+      toast.value.visible = false;
+      toastTimer = null;
+    }, duration);
+  }
+}
+
 function setError(err: any, fallback: string) {
-  errorMessage.value = err?.response?.data?.detail || fallback;
-  message.value = "";
+  showToast(err?.response?.data?.detail || fallback, "error", 4200);
 }
 
 function formatStatusLabel(value: string): string {
@@ -115,7 +136,6 @@ async function refreshPending() {
   pendingRefreshing.value = true;
   try {
 	await subscription.loadPending(resolvedUsername);
-	errorMessage.value = "";
   } catch (err: any) {
 	setError(err, "Failed to load pending requests.");
   } finally {
@@ -132,13 +152,11 @@ async function approveRequest(subscriptionId: number) {
   const vendorName = pendingRow ? vendorLabel(pendingRow) : `#${subscriptionId}`;
   try {
     approvingId.value = subscriptionId;
-    message.value = `Approving ${vendorName} subscription...`;
-    errorMessage.value = "";
+    showToast(`Confirming ${vendorName} on XRPL...`, "info", null);
     await subscription.approve(subscriptionId);
     await refreshPending();
     await refreshSubscriptions();
-    message.value = `${vendorName} subscription approved.`;
-    errorMessage.value = "";
+    showToast(`${vendorName} subscription is now active.`, "success");
   } catch (err: any) {
     setError(err, "Failed to approve subscription.");
   } finally {
@@ -148,13 +166,11 @@ async function approveRequest(subscriptionId: number) {
 async function cancelSubscription(subscriptionId: number) {
   try {
     cancellingId.value = subscriptionId;
-    message.value = `Cancelling subscription #${subscriptionId}...`;
-    errorMessage.value = "";
+    showToast(`Cancelling subscription #${subscriptionId}...`, "info", null);
     await subscription.cancel(subscriptionId);
     await refreshPending();
     await refreshSubscriptions();
-    message.value = `Subscription #${subscriptionId} cancelled.`;
-    errorMessage.value = "";
+    showToast(`Subscription #${subscriptionId} cancelled.`, "success");
   } catch (err: any) {
     setError(err, "Failed to cancel subscription.");
   } finally {
@@ -177,8 +193,7 @@ async function copyText(value: string) {
   if (!value) return;
   try {
     await navigator.clipboard.writeText(value);
-    message.value = "Copied to clipboard.";
-    errorMessage.value = "";
+    showToast("Copied to clipboard.", "success", 1800);
   } catch {
     setError(null, "Failed to copy to clipboard.");
   }
@@ -336,8 +351,21 @@ function explorerTxUrl(txHash: string): string {
 			</div>
 		</article>
 
-		<p v-if="message" class="message success">{{ message }}</p>
-		<p v-if="errorMessage" class="message error">{{ errorMessage }}</p>
+    <transition name="toast-fade">
+      <div v-if="toast.visible" class="toast" :class="`is-${toast.tone}`" role="status" aria-live="polite">
+        <div class="toast-icon">
+          <i
+            class="pi"
+            :class="{
+              'pi-check-circle': toast.tone === 'success',
+              'pi-exclamation-circle': toast.tone === 'error',
+              'pi-spin pi-spinner': toast.tone === 'info',
+            }"
+          ></i>
+        </div>
+        <div class="toast-text">{{ toast.text }}</div>
+      </div>
+    </transition>
 	</section>
 </template>
 
@@ -502,14 +530,69 @@ th, td {
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
-.message { margin: 0; font-weight: 600; }
-.message.success { color: #1f7a3b; }
-.message.error { color: #b42318; }
+.toast {
+  position: fixed;
+  right: 1.4rem;
+  bottom: 1.4rem;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: min(380px, calc(100vw - 2rem));
+  padding: 0.88rem 1rem;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--surface-panel) 92%, transparent);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(12px);
+}
+.toast.is-success {
+  border-color: color-mix(in srgb, #22c55e 28%, var(--border-color));
+  background: color-mix(in srgb, #22c55e 10%, var(--surface-panel));
+}
+.toast.is-error {
+  border-color: color-mix(in srgb, #ef4444 28%, var(--border-color));
+  background: color-mix(in srgb, #ef4444 10%, var(--surface-panel));
+}
+.toast.is-info {
+  border-color: color-mix(in srgb, var(--accent-1) 26%, var(--border-color));
+  background: color-mix(in srgb, var(--accent-1) 10%, var(--surface-panel));
+}
+.toast-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--surface-soft) 88%, transparent);
+  color: var(--text-strong);
+  flex: 0 0 auto;
+}
+.toast-text {
+  color: var(--text-strong);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+}
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
 @media (max-width: 900px) {
 	.filters { grid-template-columns: 1fr; }
+  .toast {
+    right: 1rem;
+    bottom: 1rem;
+    left: 1rem;
+    max-width: none;
+  }
 }
 </style>

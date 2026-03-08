@@ -14,7 +14,7 @@ const layout = useLayoutStore();
     }"
   >
     <div class="brand">
-      <div class="logo">EP</div>
+      <img class="logo" src="/favicon.ico" alt="EquiPay" />
       <div class="wordmark">EquiPay</div>
     </div>
 
@@ -50,12 +50,8 @@ const layout = useLayoutStore();
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: linear-gradient(145deg, var(--accent-1), var(--accent-2));
-  color: white;
-  font-weight: 800;
-  display: grid;
-  place-items: center;
-  font-size: 0.72rem;
+  object-fit: cover;
+  display: block;
 }
 
 .wordmark {

@@ -9,6 +9,7 @@ import hmac
 import logging
 import math
 import secrets
+import threading
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -53,6 +54,7 @@ from db import (
     Wallet,
     WebhookDelivery,
     Snapshot,
+    SessionLocal,
     get_db,
 )
 from schemas import (
@@ -271,35 +273,72 @@ def _send_vendor_webhook(db: Session, vendor: Vendor, event_type: str, payload: 
     db.commit()
     db.refresh(row)
 
-    if not vendor.webhook_url:
-        row.status = "skipped"
-        row.error = "No webhook URL configured"
-        db.commit()
-        return
-
-    request_obj = urllib_request.Request(
-        vendor.webhook_url,
-        data=payload_json.encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            settings.WEBHOOK_SIGNATURE_HEADER: signature,
-            "User-Agent": "EquiPay-Webhook/1.0",
-        },
-        method="POST",
+    _deliver_vendor_webhook_async(
+        vendor_id=vendor.id,
+        webhook_delivery_id=row.id,
+        webhook_url=vendor.webhook_url,
+        payload_json=payload_json,
+        signature=signature,
     )
+
+
+def _deliver_vendor_webhook_async(
+    vendor_id: int,
+    webhook_delivery_id: int,
+    webhook_url: Optional[str],
+    payload_json: str,
+    signature: str,
+) -> None:
+    threading.Thread(
+        target=_deliver_vendor_webhook,
+        args=(vendor_id, webhook_delivery_id, webhook_url, payload_json, signature),
+        daemon=True,
+    ).start()
+
+
+def _deliver_vendor_webhook(
+    vendor_id: int,
+    webhook_delivery_id: int,
+    webhook_url: Optional[str],
+    payload_json: str,
+    signature: str,
+) -> None:
+    db = SessionLocal()
     try:
-        with urllib_request.urlopen(request_obj, timeout=settings.WEBHOOK_TIMEOUT_SECONDS) as response:
-            row.status = "delivered"
-            row.http_status = int(response.getcode())
-            row.error = None
-    except urllib_error.HTTPError as exc:
-        row.status = "failed"
-        row.http_status = int(exc.code)
-        row.error = str(exc.reason)
-    except Exception as exc:
-        row.status = "failed"
-        row.error = str(exc)
-    db.commit()
+        row = db.query(WebhookDelivery).filter(WebhookDelivery.id == webhook_delivery_id).first()
+        if not row:
+            return
+        if not webhook_url:
+            row.status = "skipped"
+            row.error = "No webhook URL configured"
+            db.commit()
+            return
+
+        request_obj = urllib_request.Request(
+            webhook_url,
+            data=payload_json.encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                settings.WEBHOOK_SIGNATURE_HEADER: signature,
+                "User-Agent": "EquiPay-Webhook/1.0",
+            },
+            method="POST",
+        )
+        try:
+            with urllib_request.urlopen(request_obj, timeout=settings.WEBHOOK_TIMEOUT_SECONDS) as response:
+                row.status = "delivered"
+                row.http_status = int(response.getcode())
+                row.error = None
+        except urllib_error.HTTPError as exc:
+            row.status = "failed"
+            row.http_status = int(exc.code)
+            row.error = str(exc.reason)
+        except Exception as exc:
+            row.status = "failed"
+            row.error = str(exc)
+        db.commit()
+    finally:
+        db.close()
 
 
 # Build wallet object from seed with user-friendly errors.

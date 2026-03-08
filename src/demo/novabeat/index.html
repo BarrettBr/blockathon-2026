@@ -152,8 +152,7 @@
 					<div class="field">
 						<label>Billing Cycle Speed (Demo)</label>
 						<select id="modal-cycle-speed">
-							<option value="5" selected>5 seconds</option>
-							<option value="60">1 minute</option>
+							<option value="60" selected>1 minute</option>
 							<option value="300">5 minutes</option>
 							<option value="3600">1 hour</option>
 							<option value="86400">1 day</option>
@@ -297,8 +296,8 @@
 
 		function openSubscribeModal(planName, amount, days) {
 			if (!vendorSecret) { alert('Set up your vendor credentials first (scroll to Vendor Setup).'); return; }
-			const selectedSeconds = Number(document.getElementById('modal-cycle-speed')?.value || 5);
-			const seconds = Math.min(2592000, Math.max(5, selectedSeconds));
+			const selectedSeconds = Number(document.getElementById('modal-cycle-speed')?.value || 60);
+			const seconds = Math.min(2592000, Math.max(60, selectedSeconds));
 			currentPlan = { name: planName, amount, intervalSeconds: seconds };
 			document.getElementById('modal-plan-name').textContent  = planName;
 			document.getElementById('modal-plan-price').textContent = amount + ' RLUSD';
@@ -319,7 +318,7 @@
 
 		async function submitSubscription() {
 			const username = document.getElementById('modal-username').value.trim();
-			const cycleSeconds = Math.min(2592000, Math.max(5, Number(document.getElementById('modal-cycle-speed').value || currentPlan.intervalSeconds || 2592000)));
+			const cycleSeconds = Math.min(2592000, Math.max(60, Number(document.getElementById('modal-cycle-speed').value || currentPlan.intervalSeconds || 2592000)));
 			const btn      = document.getElementById('btn-confirm');
 
 			if (!username) { showModalError('Please enter your EquiPay username.'); return; }
