@@ -723,34 +723,6 @@ def _apply_spending(db: Session, user_wallet_address: str, amount: float, curren
     guard.updated_at = datetime.now(timezone.utc)
 
 
-# Create deterministic hash of subscription terms for handshake integrity.
-def _subscription_terms_hash(
-    user_wallet_address: str,
-    merchant_wallet_address: str,
-    amount_xrp: float,
-    interval_days: int,
-) -> str:
-    terms_payload = {
-        "user_wallet_address": user_wallet_address,
-        "merchant_wallet_address": merchant_wallet_address,
-        "amount_xrp": _amount_to_string(amount_xrp),
-        "interval_days": interval_days,
-        "currency": "XRP",
-        "network": settings.XRPL_NETWORK,
-    }
-    canonical = json.dumps(terms_payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-# Convert configured handshake drops to XRP float.
-def _handshake_amount_xrp() -> float:
-    return float(
-        (Decimal(settings.HANDSHAKE_APPROVAL_DROPS) / Decimal("1000000")).quantize(
-            Decimal("0.000001")
-        )
-    )
-
-
 # Convert short issued-currency code to 160-bit XRPL hex representation.
 def _currency_to_hex(currency: str) -> str:
     return currency.encode("utf-8").hex().upper().ljust(40, "0")

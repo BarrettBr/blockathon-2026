@@ -45,7 +45,6 @@ class Settings:
         "true",
         "yes",
     }
-    HANDSHAKE_APPROVAL_DROPS: str = os.getenv("HANDSHAKE_APPROVAL_DROPS", "1")
     VENDOR_SHARED_SECRET_HEADER: str = os.getenv("VENDOR_SHARED_SECRET_HEADER", "X-Vendor-Secret")
     WEBHOOK_SIGNATURE_HEADER: str = os.getenv("WEBHOOK_SIGNATURE_HEADER", "X-Equipay-Signature")
     WEBHOOK_TIMEOUT_SECONDS: int = int(os.getenv("WEBHOOK_TIMEOUT_SECONDS", "10"))
