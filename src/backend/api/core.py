@@ -17,6 +17,7 @@ from urllib import request as urllib_request
 
 from fastapi import Depends, HTTPException, Query, Request, UploadFile
 from sqlalchemy import func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from xrpl.clients import JsonRpcClient
 from xrpl.core.addresscodec import is_valid_classic_address
@@ -68,6 +69,9 @@ from schemas import (
     WalletConnectRequest,
     WalletImportRequest,
 )
+
+_DASHBOARD_AGGREGATE_CACHE_TTL_SECONDS = 4
+_dashboard_aggregate_cache: dict[int, tuple[datetime, dict[str, Any]]] = {}
 
 # Look up stored seed for a wallet address, raising clearly if missing.
 def _get_seed_for_address(db: Session, address: str) -> str:
@@ -1802,6 +1806,16 @@ def upsert_vendor(payload: VendorCreateRequest, db: Session) -> dict[str, Any]:
 
     row = db.query(Vendor).filter(Vendor.vendor_code == payload.vendor_code).first()
     shared_secret = (payload.shared_secret or "").strip() or _generate_shared_secret()
+
+    # SQLite schema currently enforces unique shared_secret. For hackathon UX, avoid hard failures:
+    # - update: if requested secret is already used by another vendor, keep current vendor secret
+    # - create: if requested secret is already used, auto-generate a new one
+    duplicate_q = db.query(Vendor).filter(Vendor.shared_secret == shared_secret)
+    if row:
+        duplicate_q = duplicate_q.filter(Vendor.id != row.id)
+    duplicate_vendor = duplicate_q.first()
+    if duplicate_vendor:
+        shared_secret = row.shared_secret if row else _generate_shared_secret()
     if row:
         row.display_name = payload.display_name
         row.wallet_address = payload.wallet_address
@@ -1810,7 +1824,17 @@ def upsert_vendor(payload: VendorCreateRequest, db: Session) -> dict[str, Any]:
         row.shared_secret = shared_secret
         row.is_active = True
         row.updated_at = datetime.now(timezone.utc)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Vendor update failed due to a conflicting shared secret. "
+                    "Use a different secret or leave it blank to auto-generate."
+                ),
+            )
         db.refresh(row)
         return _success(
             "Vendor updated",
@@ -1836,7 +1860,24 @@ def upsert_vendor(payload: VendorCreateRequest, db: Session) -> dict[str, Any]:
         is_active=True,
     )
     db.add(row)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        # One more fallback in case of race/collision: auto-generate and retry once.
+        row.shared_secret = _generate_shared_secret()
+        db.add(row)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Vendor creation failed due to shared secret conflict. "
+                    "Retry with a different secret."
+                ),
+            )
     db.refresh(row)
     return _success(
         "Vendor created",
@@ -2820,23 +2861,29 @@ def get_dashboard(user_wallet_address: str, db: Session = Depends(get_db)) -> di
 
 # Aggregate dashboard across all connected wallets for current user.
 def get_dashboard_aggregate(current_user: UserProfile, db: Session) -> dict[str, Any]:
+    now_utc = datetime.now(timezone.utc)
+    cached = _dashboard_aggregate_cache.get(current_user.id)
+    if cached:
+        cached_at, cached_payload = cached
+        if (now_utc - cached_at).total_seconds() < _DASHBOARD_AGGREGATE_CACHE_TTL_SECONDS:
+            return _success("Aggregate dashboard", cached_payload)
+
     links = _get_user_wallet_links(db, current_user.id)
     if not links:
-        return _success(
-            "Aggregate dashboard",
-            {
-                "wallet_count": 0,
-                "wallets": [],
-                "balance_xrp": 0.0,
-                "balance_rlusd": 0.0,
-                "locked_in_escrow_xrp": 0.0,
-                "locked_in_escrow_rlusd": 0.0,
-                "monthly_guard": {"currency": "RLUSD", "limit": 0.0, "spent": 0.0, "remaining": 0.0},
-                "this_month": {"released": 0.0, "locked": 0.0},
-                "upcoming_release": [],
-                "recent_activity": [],
-            },
-        )
+        payload = {
+            "wallet_count": 0,
+            "wallets": [],
+            "balance_xrp": 0.0,
+            "balance_rlusd": 0.0,
+            "locked_in_escrow_xrp": 0.0,
+            "locked_in_escrow_rlusd": 0.0,
+            "monthly_guard": {"currency": "RLUSD", "limit": 0.0, "spent": 0.0, "remaining": 0.0},
+            "this_month": {"released": 0.0, "locked": 0.0},
+            "upcoming_release": [],
+            "recent_activity": [],
+        }
+        _dashboard_aggregate_cache[current_user.id] = (now_utc, payload)
+        return _success("Aggregate dashboard", payload)
 
     wallet_entries = []
     total_balance_xrp = 0.0
@@ -2877,26 +2924,25 @@ def get_dashboard_aggregate(current_user: UserProfile, db: Session) -> dict[str,
     upcoming_release.sort(key=lambda r: r.get("next_payment_date") or "")
     recent_activity.sort(key=lambda r: r.get("created_at") or "", reverse=True)
 
-    return _success(
-        "Aggregate dashboard",
-        {
-            "wallet_count": len(wallet_entries),
-            "wallets": wallet_entries,
-            "balance_xrp": round(total_balance_xrp, 6),
-            "balance_rlusd": round(total_balance_rlusd, 6),
-            "locked_in_escrow_xrp": round(total_locked, 6),
-            "locked_in_escrow_rlusd": round(total_locked, 6),
-            "monthly_guard": {
-                "currency": "RLUSD",
-                "limit": round(total_guard_limit, 6),
-                "spent": round(total_guard_spent, 6),
-                "remaining": round(total_guard_remaining, 6),
-            },
-            "this_month": {
-                "released": round(total_released, 6),
-                "locked": round(total_locked_month, 6),
-            },
-            "upcoming_release": upcoming_release[:20],
-            "recent_activity": recent_activity[:50],
+    payload = {
+        "wallet_count": len(wallet_entries),
+        "wallets": wallet_entries,
+        "balance_xrp": round(total_balance_xrp, 6),
+        "balance_rlusd": round(total_balance_rlusd, 6),
+        "locked_in_escrow_xrp": round(total_locked, 6),
+        "locked_in_escrow_rlusd": round(total_locked, 6),
+        "monthly_guard": {
+            "currency": "RLUSD",
+            "limit": round(total_guard_limit, 6),
+            "spent": round(total_guard_spent, 6),
+            "remaining": round(total_guard_remaining, 6),
         },
-    )
+        "this_month": {
+            "released": round(total_released, 6),
+            "locked": round(total_locked_month, 6),
+        },
+        "upcoming_release": upcoming_release[:20],
+        "recent_activity": recent_activity[:50],
+    }
+    _dashboard_aggregate_cache[current_user.id] = (now_utc, payload)
+    return _success("Aggregate dashboard", payload)

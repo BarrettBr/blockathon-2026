@@ -33,7 +33,10 @@ async function submit() {
 <template>
 	<section class="page">
 		<article class="card">
-			<h2>EquiPay</h2>
+			<div class="auth-header">
+				<h2>Welcome to EquiPay</h2>
+				<p>Sign in or create your account to continue.</p>
+			</div>
 			<div class="tabs">
 				<button :class="{ active: mode === 'login' }" @click="mode = 'login'">Login</button>
 				<button :class="{ active: mode === 'register' }" @click="mode = 'register'">Register</button>
@@ -65,6 +68,9 @@ async function submit() {
 	flex-direction: column;
 	gap: 1rem;
 }
+.auth-header { text-align: center; }
+.auth-header h2 { margin: 0; color: var(--text-strong); }
+.auth-header p { margin: 0.3rem 0 0; color: var(--text-muted); font-size: 0.9rem; }
 .tabs { display: flex; gap: 0.5rem; }
 .tabs button { flex: 1; padding: 0.4rem; border: 1px solid var(--border-color); border-radius: 6px; background: none; cursor: pointer; }
 .tabs button.active { background: var(--accent-2); color: white; border-color: var(--accent-2); }

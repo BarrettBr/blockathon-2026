@@ -158,8 +158,7 @@ async function load() {
   }
 
   try {
-    await wallet.fetchAggregateBalance();
-    await dashboard.loadDashboard();
+    await dashboard.loadDashboard(undefined, true);
   } catch {
     // Store-level errors are surfaced in UI through errorText.
   }

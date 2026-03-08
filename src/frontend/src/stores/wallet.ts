@@ -1,6 +1,8 @@
 import { defineStore } from "pinia";
 import apiHelper from "@/utils/apiHelper";
 
+let aggregateInFlight: Promise<any> | null = null;
+
 export interface ConnectedWallet {
   link_id: number;
   wallet_id: number;
@@ -22,6 +24,7 @@ export const useWalletStore = defineStore("wallet", {
     pageSize: 10,
     total: 0,
     pages: 0,
+    aggregateFetchedAt: 0,
   }),
   actions: {
     async loadWallets(page?: number) {
@@ -41,7 +44,6 @@ export const useWalletStore = defineStore("wallet", {
           this.selectedWallet =
             this.wallets.find((w) => w.link_id === this.selectedWallet?.link_id) || this.wallets[0] || null;
         }
-        await this.fetchAggregateBalance();
       } catch (error: any) {
         this.error = error?.response?.data?.detail || "Failed to load wallets";
       } finally {
@@ -123,17 +125,31 @@ export const useWalletStore = defineStore("wallet", {
       }
     },
 
-    async fetchAggregateBalance() {
+    async fetchAggregateBalance(force = false) {
+      const now = Date.now();
+      if (!force && this.aggregateBalance && now - this.aggregateFetchedAt < 5000) {
+        return this.aggregateBalance;
+      }
+      if (aggregateInFlight) {
+        return await aggregateInFlight;
+      }
+
       this.loading = true;
       this.error = "";
-      try {
+      aggregateInFlight = (async () => {
         const res = await apiHelper.getAggregateBalance();
         this.aggregateBalance = res.data.data;
+        this.aggregateFetchedAt = Date.now();
         return this.aggregateBalance;
+      })();
+
+      try {
+        return await aggregateInFlight;
       } catch (error: any) {
         this.error = error?.response?.data?.detail || "Aggregate balance fetch failed";
         throw error;
       } finally {
+        aggregateInFlight = null;
         this.loading = false;
       }
     },

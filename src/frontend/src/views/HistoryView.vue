@@ -129,6 +129,70 @@ const filteredEntries = computed(() => {
     String(row.event_type || "").startsWith("subscription_"),
   );
 });
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderMarkdown(value: string): string {
+  const lines = escapeHtml(value || "").split("\n");
+  const out: string[] = [];
+  let inList = false;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      if (inList) {
+        out.push("</ul>");
+        inList = false;
+      }
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      if (inList) {
+        out.push("</ul>");
+        inList = false;
+      }
+      const hashes = heading[1] || "#";
+      const text = heading[2] || "";
+      const level = hashes.length;
+      out.push(`<h${level}>${text}</h${level}>`);
+      continue;
+    }
+
+    const list = line.match(/^[-*]\s+(.+)$/);
+    if (list) {
+      if (!inList) {
+        out.push("<ul>");
+        inList = true;
+      }
+      out.push(`<li>${list[1] || ""}</li>`);
+      continue;
+    }
+
+    if (inList) {
+      out.push("</ul>");
+      inList = false;
+    }
+    out.push(`<p>${line}</p>`);
+  }
+
+  if (inList) out.push("</ul>");
+
+  return out
+    .join("")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/`(.+?)`/g, "<code>$1</code>");
+}
+
+const reviewSummaryHtml = computed(() => renderMarkdown(reviewSummary.value));
 </script>
 
 <template>
@@ -251,9 +315,7 @@ const filteredEntries = computed(() => {
             <p>Analyzing your wallet activity…</p>
           </div>
           <div v-else-if="reviewError" class="error">{{ reviewError }}</div>
-          <pre v-else-if="reviewSummary" class="summary">{{
-            reviewSummary
-          }}</pre>
+          <div v-else-if="reviewSummary" class="summary markdown" v-html="reviewSummaryHtml" />
           <p v-else class="empty">No summary yet.</p>
         </div>
       </div>
@@ -536,12 +598,34 @@ select {
   }
 }
 .summary {
-  white-space: pre-wrap;
   font-family: inherit;
   font-size: 0.92rem;
   color: var(--text-primary);
   line-height: 1.6;
   margin: 0;
+}
+.summary.markdown :deep(h1),
+.summary.markdown :deep(h2),
+.summary.markdown :deep(h3) {
+  margin: 0.4rem 0 0.35rem;
+  color: var(--text-strong);
+}
+.summary.markdown :deep(p) {
+  margin: 0.35rem 0;
+}
+.summary.markdown :deep(ul) {
+  margin: 0.3rem 0 0.5rem 1rem;
+  padding: 0;
+}
+.summary.markdown :deep(li) {
+  margin: 0.2rem 0;
+}
+.summary.markdown :deep(code) {
+  background: var(--surface-soft);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.05rem 0.3rem;
+  font-size: 0.84rem;
 }
 .error {
   color: #b42318;

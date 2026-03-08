@@ -151,7 +151,9 @@ onMounted(refreshList);
 
       <label>Ask About This Report</label>
       <textarea v-model="question" rows="4" placeholder="How much of my spending is recurring vs one-time?" />
-      <button class="compact" @click="askQuestion">Ask Gemini</button>
+      <div class="ask-actions">
+        <button class="compact ask-btn" @click="askQuestion">Ask Gemini</button>
+      </div>
 
       <div v-if="snapshot.answer" class="answer">
         <h4>Gemini Answer</h4>
@@ -189,6 +191,9 @@ input, textarea {
   padding: 0.5rem 0.65rem;
   margin-top: 0.2rem;
 }
+textarea {
+  resize: vertical;
+}
 .or { margin: 0.5rem 0 0; color: var(--text-muted); }
 .date-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
 .row-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
@@ -222,6 +227,14 @@ th, td {
   border: 1px solid var(--border-color);
   border-radius: 10px;
   padding: 0.75rem;
+}
+.ask-actions {
+  margin-top: 0.55rem;
+  display: flex;
+  justify-content: flex-start;
+}
+.ask-btn {
+  min-width: 128px;
 }
 .answer h4 { margin: 0 0 0.4rem; color: var(--text-strong); }
 .answer p { margin: 0; color: var(--text-primary); white-space: pre-wrap; }

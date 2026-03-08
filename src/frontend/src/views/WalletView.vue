@@ -59,7 +59,7 @@ async function connectWallet() {
   message.value = "";
   try {
     await wallet.connectWallet(seedInput.value.trim(), nicknameInput.value.trim());
-    await wallet.fetchAggregateBalance();
+    await wallet.fetchAggregateBalance(true);
     seedInput.value = "";
     message.value = "Wallet connected successfully.";
   } catch {
@@ -74,7 +74,7 @@ async function removeWallet(linkId: number) {
   message.value = "";
   try {
     await wallet.removeConnectedWallet(linkId);
-    await wallet.fetchAggregateBalance();
+    await wallet.fetchAggregateBalance(true);
     message.value = "Connected wallet removed.";
   } catch {
     message.value = wallet.error || "Failed to remove wallet";
@@ -94,7 +94,7 @@ async function bootstrapRlusd() {
       mint_amount: bootstrapAmount.value,
     });
     await wallet.fetchSelectedBalance();
-    await wallet.fetchAggregateBalance();
+    await wallet.fetchAggregateBalance(true);
     const data = res.data.data || {};
     const target = data.address || wallet.selectedWallet.address;
     if (data.minted && data.mint_tx_hash) {
@@ -123,7 +123,7 @@ async function sendXrp() {
       amount_xrp: xrpAmount.value,
     });
     await wallet.fetchSelectedBalance();
-    await wallet.fetchAggregateBalance();
+    await wallet.fetchAggregateBalance(true);
     message.value = "XRP payment sent.";
   } catch (error: any) {
     message.value = error?.response?.data?.detail || "Failed to send XRP";
@@ -143,7 +143,7 @@ async function sendRlusd() {
       amount: rlusdAmount.value,
     });
     await wallet.fetchSelectedBalance();
-    await wallet.fetchAggregateBalance();
+    await wallet.fetchAggregateBalance(true);
     message.value = "RLUSD payment sent.";
   } catch (error: any) {
     message.value = error?.response?.data?.detail || "Failed to send RLUSD";
@@ -169,7 +169,7 @@ onMounted(async () => {
   if (wallet.selectedWallet) {
     await wallet.fetchSelectedBalance();
   }
-  await wallet.fetchAggregateBalance();
+  await wallet.fetchAggregateBalance(true);
 });
 
 watch(
