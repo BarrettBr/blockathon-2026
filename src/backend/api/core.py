@@ -20,12 +20,15 @@ from xrpl.core.addresscodec import is_valid_classic_address
 from xrpl.models.amounts import IssuedCurrencyAmount
 from xrpl.models.requests import AccountInfo, AccountLines, ServerInfo, Tx
 from xrpl.models.transactions import (
+    AccountSet,
+    AccountSetAsfFlag,
     EscrowCancel,
     EscrowCreate,
     EscrowFinish,
     Memo,
     Payment,
     TrustSet,
+    TrustSetFlag,
 )
 from xrpl.transaction import submit_and_wait
 from xrpl.utils import datetime_to_ripple_time, xrp_to_drops
@@ -633,8 +636,6 @@ def _has_rlusd_trustline(address: str) -> bool:
 
 # Create RLUSD trust line for wallet if missing.
 def _ensure_rlusd_trustline(user_wallet: XRPLWallet) -> bool:
-    if _has_rlusd_trustline(user_wallet.classic_address):
-        return False
     client = _get_xrpl_client()
     tx = TrustSet(
         account=user_wallet.classic_address,
@@ -643,6 +644,7 @@ def _ensure_rlusd_trustline(user_wallet: XRPLWallet) -> bool:
             issuer=settings.RLUSD_ISSUER,
             value="1000000",
         ),
+        flags=TrustSetFlag.TF_CLEAR_NO_RIPPLE,
     )
     submit_and_wait(tx, client, user_wallet)
     return True
@@ -662,6 +664,23 @@ def _mint_rlusd(destination_address: str, mint_amount: float) -> dict[str, Any]:
         "RLUSD_ISSUER",
     )
     client = _get_xrpl_client()
+
+    # Ensure DefaultRipple is enabled on issuer — required for peer-to-peer IOU transfers
+    try:
+        acct_info = client.request(AccountInfo(
+            account=issuer_wallet.classic_address,
+            ledger_index="validated"
+        )).result
+        flags = acct_info.get("account_data", {}).get("Flags", 0)
+        if not (flags & 0x00800000):  # lsfDefaultRipple not set
+            set_flag_tx = AccountSet(
+                account=issuer_wallet.classic_address,
+                set_flag=AccountSetAsfFlag.ASF_DEFAULT_RIPPLE,
+            )
+            submit_and_wait(set_flag_tx, client, issuer_wallet)
+    except Exception:
+        pass  # Non-fatal — payment attempt will fail with clear error if still needed
+
     tx = Payment(
         account=issuer_wallet.classic_address,
         destination=destination_address,
@@ -756,6 +775,7 @@ def _send_issued_payment(
             account=sender_wallet.classic_address,
             destination=destination_address,
             amount=issued_amount,
+            send_max=issued_amount,
         )
         response = submit_and_wait(tx, client, sender_wallet)
         result = response.result
@@ -1290,7 +1310,6 @@ def delete_connected_wallet(link_id: int, current_user: UserProfile, db: Session
 
 
 # Bootstrap RLUSD readiness: trust line + mint for an imported wallet.
-@router.post("/wallets/bootstrap-rlusd", response_model=ApiResponse)
 @router.post("/wallets/bootstrap-rlusd", response_model=ApiResponse)
 def bootstrap_rlusd_wallet(
     payload: BootstrapRlusdRequest,

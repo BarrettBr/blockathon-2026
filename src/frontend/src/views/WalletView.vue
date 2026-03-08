@@ -88,7 +88,7 @@ async function bootstrapRlusd() {
   message.value = "";
   try {
     const res = await apiHelper.bootstrapRlusdWallet({
-      user_seed: wallet.selectedWallet.seed,
+      user_wallet_address: wallet.selectedWallet.address,
       mint_amount: bootstrapAmount.value,
     });
     await wallet.fetchSelectedBalance();
@@ -107,7 +107,7 @@ async function sendXrp() {
   message.value = "";
   try {
     await apiHelper.sendXrpPayment({
-      sender_seed: wallet.selectedWallet.seed,
+      from_address: wallet.selectedWallet.address,
       destination_address: resolvedDestinationAddress.value,
       amount_xrp: xrpAmount.value,
     });
@@ -127,7 +127,7 @@ async function sendRlusd() {
   message.value = "";
   try {
     await apiHelper.sendRlusdPayment({
-      sender_seed: wallet.selectedWallet.seed,
+      from_address: wallet.selectedWallet.address,
       destination_address: resolvedDestinationAddress.value,
       amount: rlusdAmount.value,
     });

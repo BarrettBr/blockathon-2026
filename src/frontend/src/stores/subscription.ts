@@ -87,21 +87,19 @@ export const useSubscriptionStore = defineStore("subscription", {
       }
     },
 
-    async approve(subscriptionId: number, username: string, userSeed: string) {
-      const res = await apiHelper.approveSubscriptionRequest(subscriptionId, {
-        username,
-        user_seed: userSeed,
-      });
-      return res.data.data;
-    },
+	async approve(subscriptionId: number, username: string) {
+		const res = await apiHelper.approveSubscriptionRequest(subscriptionId, {
+			username,
+		});
+		return res.data.data;
+	},
 
-    async cancelAsUser(subscriptionId: number, username: string, userSeed: string) {
-      const res = await apiHelper.cancelSubscription(subscriptionId, {
-        username,
-        user_seed: userSeed,
-      });
-      return res.data.data;
-    },
+	async cancelAsUser(subscriptionId: number, username: string) {
+		const res = await apiHelper.cancelSubscription(subscriptionId, {
+			username,
+		});
+		return res.data.data;
+	},
 
     async cancelAsVendor(subscriptionId: number, sharedSecret: string) {
       const res = await apiHelper.cancelSubscription(subscriptionId, {}, sharedSecret);

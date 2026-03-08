@@ -6,7 +6,6 @@ export interface ConnectedWallet {
   wallet_id: number;
   nickname: string;
   address: string;
-  seed: string;
   network: string;
   created_at?: string;
 }

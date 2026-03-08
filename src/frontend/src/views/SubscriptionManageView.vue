@@ -43,37 +43,36 @@ async function refreshPending() {
 
 async function approveRequest(subscriptionId: number) {
   if (!wallet.selectedWallet) {
-	setError(null, "Connect a wallet before approving.");
-	return;
+    setError(null, "Connect a wallet before approving.");
+    return;
   }
   if (!username.value) {
-	setError(null, "Enter username first.");
-	return;
+    setError(null, "Enter username first.");
+    return;
   }
   try {
-	await subscription.approve(subscriptionId, username.value, wallet.selectedWallet.seed);
-	await refreshPending();
-	await refreshSubscriptions();
-	message.value = `Subscription #${subscriptionId} approved.`;
-	errorMessage.value = "";
+    await subscription.approve(subscriptionId, username.value);
+    await refreshPending();
+    await refreshSubscriptions();
+    message.value = `Subscription #${subscriptionId} approved.`;
+    errorMessage.value = "";
   } catch (err: any) {
-	setError(err, "Failed to approve subscription.");
+    setError(err, "Failed to approve subscription.");
   }
 }
-
 async function cancelAsUser(subscriptionId: number) {
-  if (!wallet.selectedWallet || !username.value) {
-	setError(null, "Connect wallet and enter username first.");
-	return;
+  if (!username.value) {
+    setError(null, "Enter username first.");
+    return;
   }
   try {
-	await subscription.cancelAsUser(subscriptionId, username.value, wallet.selectedWallet.seed);
-	await refreshPending();
-	await refreshSubscriptions();
-	message.value = `Subscription #${subscriptionId} cancelled as user.`;
-	errorMessage.value = "";
+    await subscription.cancelAsUser(subscriptionId, username.value);
+    await refreshPending();
+    await refreshSubscriptions();
+    message.value = `Subscription #${subscriptionId} cancelled as user.`;
+    errorMessage.value = "";
   } catch (err: any) {
-	setError(err, "Failed to cancel subscription as user.");
+    setError(err, "Failed to cancel subscription as user.");
   }
 }
 
@@ -92,6 +91,10 @@ async function cancelAsVendor(subscriptionId: number) {
 	setError(err, "Failed to cancel subscription as vendor.");
   }
 }
+onMounted(async () => {
+  await refreshSubscriptions();
+  if (username.value) await subscription.loadPending(username.value);
+});
 watch(() => wallet.selectedWallet?.address, async () => {
   await refreshSubscriptions();
   if (username.value) await subscription.loadPending(username.value);
