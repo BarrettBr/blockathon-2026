@@ -529,6 +529,118 @@ def _ask_gemini_with_snapshot(snapshot_json: dict[str, Any], question: str) -> s
         raise HTTPException(status_code=502, detail="Gemini returned empty response")
     return answer
 
+def generate_wallet_review(
+    wallet_addresses: list[str],
+    days: int,
+    db: Session,
+) -> dict[str, Any]:
+    from datetime import datetime, timedelta, timezone
+    period_end = datetime.now(timezone.utc)
+    period_start = period_end - timedelta(days=days)
+
+    all_transactions = []
+    all_subscriptions = []
+
+    for address in wallet_addresses:
+        txs = (
+            db.query(Transaction)
+            .filter(Transaction.from_address == address)
+            .filter(Transaction.created_at >= period_start)
+            .order_by(Transaction.created_at.desc())
+            .all()
+        )
+        all_transactions.extend([
+            {
+                "wallet": address,
+                "tx_hash": row.tx_hash,
+                "tx_type": row.tx_type,
+                "to_address": row.to_address,
+                "amount_xrp": row.amount_xrp,
+                "status": row.status,
+                "created_at": row.created_at.isoformat(),
+            }
+            for row in txs
+        ])
+
+        subs = (
+            db.query(Subscription)
+            .filter(Subscription.user_wallet_address == address)
+            .filter(Subscription.status.in_(["active", "non_renewing"]))
+            .all()
+        )
+        all_subscriptions.extend([
+            {
+                "wallet": address,
+                "vendor_tx_id": row.vendor_tx_id,
+                "amount_xrp": row.amount_xrp,
+                "interval_days": row.interval_days,
+                "status": row.status,
+                "next_payment_date": row.next_payment_date.isoformat(),
+                "auto_renew": bool(row.auto_renew),
+            }
+            for row in subs
+        ])
+
+    prompt_data = {
+        "period_days": days,
+        "wallets_reviewed": wallet_addresses,
+        "transactions": all_transactions,
+        "active_subscriptions": all_subscriptions,
+    }
+
+    prompt = (
+        f"You are a personal finance assistant reviewing a user's XRPL blockchain wallet activity "
+        f"over the past {days} days. Analyze the following data and provide a concise, friendly summary covering:\n"
+        "1. Overall spending patterns\n"
+        "2. Notable transactions\n"
+        "3. Active subscriptions and their cost\n"
+        "4. Any observations or suggestions\n\n"
+        "Keep the tone conversational and helpful. Use bullet points where appropriate.\n\n"
+        f"Data:\n{_json.dumps(prompt_data, indent=2)}"
+    )
+
+    if not settings.GEMINI_API_KEY.strip():
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured")
+
+    model = settings.GEMINI_MODEL.strip() or "gemini-1.5-flash"
+    base_url = settings.GEMINI_API_BASE_URL.rstrip("/")
+    url = f"{base_url}/models/{model}:generateContent?key={urllib_parse.quote(settings.GEMINI_API_KEY.strip())}"
+
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    request_obj = urllib_request.Request(
+        url,
+        data=_json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(request_obj, timeout=30) as response:
+            parsed = _json.loads(response.read().decode("utf-8"))
+    except urllib_error.HTTPError as exc:
+        message = exc.read().decode("utf-8") if hasattr(exc, "read") else str(exc)
+        raise HTTPException(status_code=502, detail=f"Gemini request failed: {message}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Gemini request failed: {exc}") from exc
+
+    candidates = parsed.get("candidates") or []
+    if not candidates:
+        raise HTTPException(status_code=502, detail="Gemini returned no candidates")
+    parts = candidates[0].get("content", {}).get("parts") or []
+    summary = "".join(str(p.get("text", "")) for p in parts).strip()
+    if not summary:
+        raise HTTPException(status_code=502, detail="Gemini returned empty response")
+
+    return _success(
+        "AI review generated",
+        {
+            "summary": summary,
+            "wallets_reviewed": wallet_addresses,
+            "period_days": days,
+            "transaction_count": len(all_transactions),
+            "subscription_count": len(all_subscriptions),
+        },
+    )
+
 
 # Get month key used for spending guard buckets.
 def _current_month_key() -> str:
