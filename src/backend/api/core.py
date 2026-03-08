@@ -8,12 +8,13 @@ import json
 import hmac
 import secrets
 import uuid
+from pathlib import Path
 from typing import Any, Optional
 from urllib import error as urllib_error
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
-from fastapi import Depends, HTTPException, Query, Request
+from fastapi import Depends, HTTPException, Query, Request, UploadFile
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from xrpl.clients import JsonRpcClient
@@ -177,6 +178,11 @@ def _verify_subscription_contract(payload: dict[str, Any], signature: str, share
 # Generate a vendor shared secret.
 def _generate_shared_secret() -> str:
     return secrets.token_urlsafe(32)
+
+
+def _vendor_photo_url(filename: str) -> str:
+    base = settings.PUBLIC_API_BASE_URL.rstrip("/")
+    return f"{base}/static/vendor-photos/{filename}"
 
 
 # Build and sign a webhook event payload.
@@ -1664,6 +1670,7 @@ def upsert_vendor(payload: VendorCreateRequest, db: Session) -> dict[str, Any]:
         row.display_name = payload.display_name
         row.wallet_address = payload.wallet_address
         row.webhook_url = payload.webhook_url
+        row.vendor_photo_url = payload.vendor_photo_url
         row.shared_secret = shared_secret
         row.is_active = True
         row.updated_at = datetime.now(timezone.utc)
@@ -1677,6 +1684,7 @@ def upsert_vendor(payload: VendorCreateRequest, db: Session) -> dict[str, Any]:
                 "display_name": row.display_name,
                 "wallet_address": row.wallet_address,
                 "webhook_url": row.webhook_url,
+                "vendor_photo_url": row.vendor_photo_url,
                 "shared_secret": row.shared_secret,
                 "is_active": row.is_active,
             },
@@ -1688,6 +1696,7 @@ def upsert_vendor(payload: VendorCreateRequest, db: Session) -> dict[str, Any]:
         wallet_address=payload.wallet_address,
         shared_secret=shared_secret,
         webhook_url=payload.webhook_url,
+        vendor_photo_url=payload.vendor_photo_url,
         is_active=True,
     )
     db.add(row)
@@ -1701,6 +1710,7 @@ def upsert_vendor(payload: VendorCreateRequest, db: Session) -> dict[str, Any]:
             "display_name": row.display_name,
             "wallet_address": row.wallet_address,
             "webhook_url": row.webhook_url,
+            "vendor_photo_url": row.vendor_photo_url,
             "shared_secret": row.shared_secret,
             "is_active": row.is_active,
         },
@@ -1718,6 +1728,7 @@ def get_vendor_me(request: Request, db: Session) -> dict[str, Any]:
             "display_name": vendor.display_name,
             "wallet_address": vendor.wallet_address,
             "webhook_url": vendor.webhook_url,
+            "vendor_photo_url": vendor.vendor_photo_url,
             "shared_secret": vendor.shared_secret,
             "is_active": vendor.is_active,
         },
@@ -1735,6 +1746,8 @@ def update_vendor(request: Request, payload: VendorUpdateRequest, db: Session) -
         vendor.display_name = payload.display_name
     if payload.webhook_url is not None:
         vendor.webhook_url = payload.webhook_url
+    if payload.vendor_photo_url is not None:
+        vendor.vendor_photo_url = payload.vendor_photo_url
     vendor.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(vendor)
@@ -1746,8 +1759,41 @@ def update_vendor(request: Request, payload: VendorUpdateRequest, db: Session) -
             "display_name": vendor.display_name,
             "wallet_address": vendor.wallet_address,
             "webhook_url": vendor.webhook_url,
+            "vendor_photo_url": vendor.vendor_photo_url,
             "shared_secret": vendor.shared_secret,
             "is_active": vendor.is_active,
+        },
+    )
+
+
+def upload_vendor_photo(request: Request, photo: UploadFile, db: Session) -> dict[str, Any]:
+    vendor = _get_vendor_from_request(request, db)
+    if not photo.filename:
+        raise HTTPException(status_code=400, detail="Photo filename is required")
+    ext = Path(photo.filename).suffix.lower()
+    if ext not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(status_code=400, detail="Unsupported photo format. Use png/jpg/jpeg/webp.")
+
+    photo_dir = Path(settings.VENDOR_PHOTO_DIR)
+    photo_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"vendor-{vendor.id}-{uuid.uuid4().hex}{ext}"
+    dest = photo_dir / filename
+    content = photo.file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Photo too large (max 5MB)")
+    dest.write_bytes(content)
+
+    vendor.vendor_photo_url = _vendor_photo_url(filename)
+    vendor.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(vendor)
+    return _success(
+        "Vendor photo uploaded",
+        {
+            "vendor_code": vendor.vendor_code,
+            "vendor_photo_url": vendor.vendor_photo_url,
         },
     )
 
@@ -1873,7 +1919,16 @@ def list_pending_subscription_requests(username: str, db: Session) -> dict[str, 
         .order_by(Subscription.created_at.desc())
         .all()
     )
-    return _success("Pending subscriptions", [_subscription_to_dict(row) for row in rows])
+    vendor_by_id = {v.id: v for v in db.query(Vendor).all()}
+    return _success(
+        "Pending subscriptions",
+        [
+            {**_subscription_to_dict(row),
+             "vendor_name": vendor_by_id.get(row.vendor_id).display_name if vendor_by_id.get(row.vendor_id) else None,
+             "vendor_photo_url": vendor_by_id.get(row.vendor_id).vendor_photo_url if vendor_by_id.get(row.vendor_id) else None}
+            for row in rows
+        ],
+    )
 
 
 # Approve pending request, verify contract signature/payload, and create escrow.
@@ -2061,7 +2116,16 @@ def cancel_subscription_request(
 # List all subscriptions for admin/dashboard views.
 def list_subscriptions(db: Session) -> dict[str, Any]:
     rows = db.query(Subscription).order_by(Subscription.created_at.desc()).all()
-    return _success("Subscription list", [_subscription_to_dict(row) for row in rows])
+    vendor_by_id = {v.id: v for v in db.query(Vendor).all()}
+    return _success(
+        "Subscription list",
+        [
+            {**_subscription_to_dict(row),
+             "vendor_name": vendor_by_id.get(row.vendor_id).display_name if vendor_by_id.get(row.vendor_id) else None,
+             "vendor_photo_url": vendor_by_id.get(row.vendor_id).vendor_photo_url if vendor_by_id.get(row.vendor_id) else None}
+            for row in rows
+        ],
+    )
 
 
 # Fetch one subscription by ID.
@@ -2529,7 +2593,9 @@ def get_dashboard(user_wallet_address: str, db: Session = Depends(get_db)) -> di
         .limit(5)
         .all()
     )
-    vendor_by_wallet = {row.wallet_address: row.display_name for row in db.query(Vendor).all()}
+    vendor_rows = db.query(Vendor).all()
+    vendor_by_wallet = {row.wallet_address: row for row in vendor_rows}
+    vendor_by_id = {row.id: row for row in vendor_rows}
 
     activity_rows = (
         db.query(HistoryEvent)
@@ -2560,7 +2626,14 @@ def get_dashboard(user_wallet_address: str, db: Session = Depends(get_db)) -> di
                 {
                     "subscription_id": row.id,
                     "merchant_wallet_address": row.merchant_wallet_address,
-                    "vendor_name": vendor_by_wallet.get(row.merchant_wallet_address),
+                    "vendor_name": (
+                        (vendor_by_id.get(row.vendor_id).display_name if vendor_by_id.get(row.vendor_id) else None)
+                        or (vendor_by_wallet.get(row.merchant_wallet_address).display_name if vendor_by_wallet.get(row.merchant_wallet_address) else None)
+                    ),
+                    "vendor_photo_url": (
+                        (vendor_by_id.get(row.vendor_id).vendor_photo_url if vendor_by_id.get(row.vendor_id) else None)
+                        or (vendor_by_wallet.get(row.merchant_wallet_address).vendor_photo_url if vendor_by_wallet.get(row.merchant_wallet_address) else None)
+                    ),
                     "amount_xrp": row.amount_xrp,
                     "next_payment_date": row.next_payment_date.isoformat(),
                     "escrow_status": row.escrow_status,

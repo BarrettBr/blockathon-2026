@@ -122,6 +122,7 @@ const upcomingSubscriptions = computed(() => {
       key: `${row.subscription_id}-${row.next_payment_date}`,
       name,
       initial: vendorInitial(name),
+      photoUrl: String(row.vendor_photo_url || "").trim(),
       amountText: `${fmtAmount(toNumber(row.amount_xrp), 2)} XRP`,
       renewalText: formatDateLabel(String(row.next_payment_date || "")),
     };
@@ -215,7 +216,8 @@ watch(
         <ul class="clean-list">
           <li v-for="item in upcomingSubscriptions" :key="item.key" class="row-item">
             <div class="row-main">
-              <div class="avatar" aria-hidden="true">{{ item.initial }}</div>
+              <img v-if="item.photoUrl" :src="item.photoUrl" class="avatar-photo" alt="Vendor logo" />
+              <div v-else class="avatar" aria-hidden="true">{{ item.initial }}</div>
               <div class="name-col">
                 <strong class="name">{{ item.name }}</strong>
                 <small>Renews {{ item.renewalText }}</small>
@@ -344,6 +346,13 @@ watch(
   font-weight: 800;
   display: grid;
   place-items: center;
+  border: 1px solid var(--border-color);
+}
+.avatar-photo {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
   border: 1px solid var(--border-color);
 }
 .name-col {

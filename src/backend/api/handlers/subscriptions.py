@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from sqlalchemy.orm import Session
 from handlers.auth import get_current_user
 
@@ -47,6 +47,15 @@ def update_vendor(request: Request, payload: VendorUpdateRequest, db: Session = 
 @router.post("/vendors/me/secret/regenerate", response_model=ApiResponse)
 def regenerate_vendor_secret(request: Request, db: Session = Depends(get_db)):
     return core.regenerate_vendor_secret(request, db)
+
+
+@router.post("/vendors/me/photo", response_model=ApiResponse)
+def upload_vendor_photo(
+    request: Request,
+    photo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    return core.upload_vendor_photo(request, photo, db)
 
 
 @router.post("/subscriptions/requests", response_model=ApiResponse)

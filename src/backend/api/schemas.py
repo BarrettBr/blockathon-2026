@@ -24,6 +24,7 @@ class VendorCreateRequest(BaseModel):
     display_name: str = Field(..., min_length=2, max_length=128)
     wallet_address: str = Field(..., min_length=25)
     webhook_url: Optional[str] = Field(default=None, max_length=512)
+    vendor_photo_url: Optional[str] = Field(default=None, max_length=512)
     shared_secret: Optional[str] = Field(default=None, min_length=4, max_length=256)
 
 
@@ -31,6 +32,7 @@ class VendorUpdateRequest(BaseModel):
     display_name: Optional[str] = Field(default=None, min_length=2, max_length=128)
     wallet_address: Optional[str] = Field(default=None, min_length=25)
     webhook_url: Optional[str] = Field(default=None, max_length=512)
+    vendor_photo_url: Optional[str] = Field(default=None, max_length=512)
 
 class PaymentSendRequest(BaseModel):
     from_address: str

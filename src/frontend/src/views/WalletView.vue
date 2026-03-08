@@ -181,7 +181,7 @@ watch(
       <label>Wallet Nickname</label>
       <input v-model="nicknameInput" placeholder="Main Wallet" />
 
-      <button class="btn btn-primary" @click="connectWallet" :disabled="loading">Connect Wallet</button>
+      <button class="btn btn-primary btn-sm" @click="connectWallet" :disabled="loading">Connect Wallet</button>
     </article>
 
     <article class="panel">
@@ -286,7 +286,7 @@ input {
 .btn {
   border: none;
   border-radius: 12px;
-  padding: 0.52rem 0.92rem;
+  padding: 0.48rem 0.84rem;
   font-weight: 700;
   letter-spacing: 0.01em;
   cursor: pointer;

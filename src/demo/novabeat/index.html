@@ -119,6 +119,10 @@
 						<label>Shared Secret</label>
 						<input id="cfg-secret" type="text" placeholder="your-shared-secret"/>
 					</div>
+					<div class="field">
+						<label>Vendor Photo (optional)</label>
+						<input id="cfg-photo" type="file" accept="image/png,image/jpeg,image/webp"/>
+					</div>
 				</div>
 				<div class="setup-actions">
 					<button class="btn-setup" onclick="registerVendor()">Register Vendor</button>
@@ -229,6 +233,19 @@
 				document.getElementById('cfg-secret').value = finalSecret;
 				vendorSecret = finalSecret;
 				vendorCode   = code;
+				const photoInput = document.getElementById('cfg-photo');
+				const file = photoInput.files && photoInput.files[0];
+				if (file && finalSecret) {
+					const form = new FormData();
+					form.append('photo', file);
+					const uploadResp = await fetch('/proxy/vendors/me/photo', {
+						method: 'POST',
+						headers: { 'X-Vendor-Secret': finalSecret },
+						body: form,
+					});
+					const uploadData = await uploadResp.json();
+					if (!uploadResp.ok) throw new Error(parseApiError(uploadData, 'Photo upload failed'));
+				}
 				showStatus('Vendor registered ✓', true);
 			} catch (e) {
 				showStatus(e.message, false);

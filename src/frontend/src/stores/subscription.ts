@@ -29,6 +29,7 @@ export const useSubscriptionStore = defineStore("subscription", {
       display_name: string;
       wallet_address: string;
       webhook_url?: string;
+      vendor_photo_url?: string;
       shared_secret?: string;
     }) {
       const res = await apiHelper.saveVendor(payload);
@@ -43,7 +44,7 @@ export const useSubscriptionStore = defineStore("subscription", {
 
     async updateVendorMe(
       sharedSecret: string,
-      payload: { display_name?: string; wallet_address?: string; webhook_url?: string },
+      payload: { display_name?: string; wallet_address?: string; webhook_url?: string; vendor_photo_url?: string },
     ) {
       const res = await apiHelper.updateVendorMe(sharedSecret, payload);
       this.vendorProfile = res.data.data;
@@ -52,6 +53,14 @@ export const useSubscriptionStore = defineStore("subscription", {
 
     async regenerateVendorSecret(sharedSecret: string) {
       const res = await apiHelper.regenerateVendorSecret(sharedSecret);
+      return res.data.data;
+    },
+
+    async uploadVendorPhoto(sharedSecret: string, file: File) {
+      const res = await apiHelper.uploadVendorPhoto(sharedSecret, file);
+      if (this.vendorProfile) {
+        this.vendorProfile.vendor_photo_url = res.data.data.vendor_photo_url;
+      }
       return res.data.data;
     },
 

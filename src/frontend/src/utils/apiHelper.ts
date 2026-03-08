@@ -64,6 +64,7 @@ export const apiHelper = {
 		display_name: string;
 		wallet_address: string;
 		webhook_url?: string;
+		vendor_photo_url?: string;
 		shared_secret?: string;
 	}) => api.post<ApiEnvelope<any>>("/vendors/upsert", payload),
 
@@ -74,11 +75,19 @@ export const apiHelper = {
 
 	updateVendorMe: (
 		sharedSecret: string,
-		payload: { display_name?: string; wallet_address?: string; webhook_url?: string },
+		payload: { display_name?: string; wallet_address?: string; webhook_url?: string; vendor_photo_url?: string },
 	) =>
 	api.patch<ApiEnvelope<any>>("/vendors/me", payload, {
 		headers: { "X-Vendor-Secret": sharedSecret },
 	}),
+
+	uploadVendorPhoto: (sharedSecret: string, file: File) => {
+		const form = new FormData();
+		form.append("photo", file);
+		return api.post<ApiEnvelope<any>>("/vendors/me/photo", form, {
+			headers: { "X-Vendor-Secret": sharedSecret, "Content-Type": "multipart/form-data" },
+		});
+	},
 
 	regenerateVendorSecret: (sharedSecret: string) =>
 	api.post<ApiEnvelope<any>>(

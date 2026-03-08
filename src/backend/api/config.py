@@ -67,6 +67,8 @@ class Settings:
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     GEMINI_API_BASE_URL: str = os.getenv("GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
+    PUBLIC_API_BASE_URL: str = os.getenv("PUBLIC_API_BASE_URL", "http://127.0.0.1:8000")
+    VENDOR_PHOTO_DIR: str = os.getenv("VENDOR_PHOTO_DIR", str(BASE_DIR / "src" / "backend" / "api" / "static" / "vendor-photos"))
 
 
 settings = Settings()

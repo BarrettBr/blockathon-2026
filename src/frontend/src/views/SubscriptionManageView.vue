@@ -28,6 +28,19 @@ function formatStatusLabel(value: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function vendorLabel(row: any): string {
+  const name = String(row?.vendor_name || "").trim();
+  if (name) return name;
+  const walletAddress = String(row?.merchant_wallet_address || "").trim();
+  if (walletAddress) return `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
+  return "Vendor";
+}
+
+function vendorInitial(row: any): string {
+  const label = vendorLabel(row);
+  return label.charAt(0).toUpperCase();
+}
+
 function statusTone(value: string): string {
   const v = String(value || "").toLowerCase();
   if (["active", "approved", "validated", "success", "locked"].includes(v)) return "is-good";
@@ -179,6 +192,7 @@ function explorerTxUrl(txHash: string): string {
 					<thead>
 						<tr>
 							<th>ID</th>
+							<th>Vendor</th>
 							<th>Reference ID</th>
 							<th>Amount</th>
 							<th>Billing Cycle</th>
@@ -189,6 +203,13 @@ function explorerTxUrl(txHash: string): string {
 					<tbody>
 						<tr v-for="s in subscription.pending" :key="s.id">
 							<td>#{{ s.id }}</td>
+              <td>
+                <div class="vendor-cell">
+                  <img v-if="s.vendor_photo_url" :src="s.vendor_photo_url" class="vendor-avatar" alt="Vendor" />
+                  <div v-else class="vendor-avatar fallback">{{ vendorInitial(s) }}</div>
+                  <span class="vendor-name">{{ vendorLabel(s) }}</span>
+                </div>
+              </td>
 							<td>{{ s.vendor_tx_id }}</td>
 							<td>{{ s.amount_xrp }} XRP</td>
 							<td>Every {{ s.interval_days }} day<span v-if="s.interval_days !== 1">s</span></td>
@@ -203,7 +224,7 @@ function explorerTxUrl(txHash: string): string {
 							</td>
 						</tr>
 						<tr v-if="subscription.pending.length === 0">
-							<td colspan="6">No plans waiting for approval.</td>
+							<td colspan="7">No plans waiting for approval.</td>
 						</tr>
 					</tbody>
 				</table>
@@ -220,6 +241,7 @@ function explorerTxUrl(txHash: string): string {
 					<thead>
 						<tr>
 							<th><button class="th-sort" @click="setSort('id')">ID{{ sortIndicator("id") }}</button></th>
+              <th>Vendor</th>
 							<th><button class="th-sort" @click="setSort('vendor_tx_id')">Reference ID{{ sortIndicator("vendor_tx_id") }}</button></th>
 							<th><button class="th-sort" @click="setSort('status')">Status{{ sortIndicator("status") }}</button></th>
 							<th><button class="th-sort" @click="setSort('request_status')">Approval{{ sortIndicator("request_status") }}</button></th>
@@ -232,6 +254,13 @@ function explorerTxUrl(txHash: string): string {
 					<tbody>
 						<tr v-for="s in sortedCurrentSubscriptions" :key="s.id">
 							<td>#{{ s.id }}</td>
+              <td>
+                <div class="vendor-cell">
+                  <img v-if="s.vendor_photo_url" :src="s.vendor_photo_url" class="vendor-avatar" alt="Vendor" />
+                  <div v-else class="vendor-avatar fallback">{{ vendorInitial(s) }}</div>
+                  <span class="vendor-name">{{ vendorLabel(s) }}</span>
+                </div>
+              </td>
 							<td>{{ s.vendor_tx_id }}</td>
 							<td><span class="status-pill" :class="statusTone(s.status)">{{ formatStatusLabel(s.status) }}</span></td>
 							<td><span class="status-pill" :class="statusTone(s.request_status)">{{ formatStatusLabel(s.request_status) }}</span></td>
@@ -268,7 +297,7 @@ function explorerTxUrl(txHash: string): string {
 							</td>
 						</tr>
 						<tr v-if="subscription.list.length === 0">
-							<td colspan="8">No active plans for this wallet yet.</td>
+							<td colspan="9">No active plans for this wallet yet.</td>
 						</tr>
 					</tbody>
 				</table>
@@ -364,6 +393,29 @@ th, td {
   padding: 0;
 }
 .actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.vendor-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.vendor-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border-color);
+}
+.vendor-avatar.fallback {
+  display: inline-grid;
+  place-items: center;
+  background: var(--surface-active);
+  color: var(--text-strong);
+  font-weight: 700;
+}
+.vendor-name {
+  color: var(--text-primary);
+  font-weight: 600;
+}
 .status-pill {
   display: inline-block;
   border: 1px solid var(--border-color);

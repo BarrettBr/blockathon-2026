@@ -153,6 +153,7 @@ class Vendor(Base):
     # Hackathon-only shortcut: plaintext shared secrets are NOT production-safe.
     shared_secret = Column(String(256), nullable=False, unique=True, index=True)
     webhook_url = Column(String(512), nullable=True)
+    vendor_photo_url = Column(String(512), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=utc_now)
     updated_at = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
@@ -249,7 +250,7 @@ def _repair_legacy_schema_if_needed() -> None:
             "contract_version",
             "auto_renew",
         },
-        "vendors": {"vendor_code", "display_name", "wallet_address", "shared_secret"},
+        "vendors": {"vendor_code", "display_name", "wallet_address", "shared_secret", "vendor_photo_url"},
         "user_profiles": {"username", "wallet_address"},
         "webhook_deliveries": {"vendor_id", "event_type", "payload", "status"},
         "subscription_cycles": {"subscription_id", "cycle_index", "period_start", "period_end"},
@@ -267,6 +268,13 @@ def _repair_legacy_schema_if_needed() -> None:
             current_cols = _table_columns(conn, table_name)
             if expected_cols.issubset(current_cols):
                 continue
+
+            if table_name == "vendors":
+                if "vendor_photo_url" not in current_cols:
+                    conn.execute(text("ALTER TABLE vendors ADD COLUMN vendor_photo_url VARCHAR(512)"))
+                    current_cols = _table_columns(conn, table_name)
+                if expected_cols.issubset(current_cols):
+                    continue
 
             # Recreate only mismatched local tables (wallets/transactions are preserved).
             conn.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
