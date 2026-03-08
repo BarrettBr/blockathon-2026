@@ -636,6 +636,8 @@ def _has_rlusd_trustline(address: str) -> bool:
 
 # Create RLUSD trust line for wallet if missing.
 def _ensure_rlusd_trustline(user_wallet: XRPLWallet) -> bool:
+    if user_wallet.classic_address == settings.RLUSD_ISSUER:
+        return False  # Issuer doesn't need a trustline to itself
     client = _get_xrpl_client()
     tx = TrustSet(
         account=user_wallet.classic_address,
