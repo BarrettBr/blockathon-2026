@@ -1015,8 +1015,9 @@ def _create_subscription_cycle_with_escrow(
     if user_wallet.classic_address != subscription.user_wallet_address:
         raise HTTPException(status_code=400, detail="Provided seed does not match subscription user wallet")
 
-    finish_after_dt = datetime.combine(period_end, datetime.min.time(), tzinfo=timezone.utc)
-    cancel_after_dt = finish_after_dt + timedelta(days=max(subscription.interval_days, 1))
+    now_utc = datetime.now(timezone.utc)
+    finish_after_dt = now_utc + timedelta(seconds=max(settings.SUBSCRIPTION_ESCROW_CLAIM_DELAY_SECONDS, 1))
+    cancel_after_dt = finish_after_dt + timedelta(days=max(settings.SUBSCRIPTION_ESCROW_REFUND_DAYS, 1))
 
     tx = EscrowCreate(
         account=subscription.user_wallet_address,
@@ -1077,7 +1078,11 @@ def _create_subscription_cycle_with_escrow(
         amount=subscription.amount_xrp,
         currency="XRP",
         status=tx_status,
-        note=f"Subscription {subscription.id} cycle {cycle_index} escrow created",
+        note=(
+            f"Subscription {subscription.id} cycle {cycle_index} escrow created "
+            f"(claim after ~{max(settings.SUBSCRIPTION_ESCROW_CLAIM_DELAY_SECONDS, 1)}s, "
+            f"refund window {max(settings.SUBSCRIPTION_ESCROW_REFUND_DAYS, 1)}d)"
+        ),
     )
     db.commit()
     db.refresh(cycle_row)

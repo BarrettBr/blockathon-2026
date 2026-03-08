@@ -69,6 +69,8 @@ class Settings:
     GEMINI_API_BASE_URL: str = os.getenv("GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
     PUBLIC_API_BASE_URL: str = os.getenv("PUBLIC_API_BASE_URL", "http://127.0.0.1:8000")
     VENDOR_PHOTO_DIR: str = os.getenv("VENDOR_PHOTO_DIR", str(BASE_DIR / "src" / "backend" / "api" / "static" / "vendor-photos"))
+    SUBSCRIPTION_ESCROW_CLAIM_DELAY_SECONDS: int = int(os.getenv("SUBSCRIPTION_ESCROW_CLAIM_DELAY_SECONDS", "15"))
+    SUBSCRIPTION_ESCROW_REFUND_DAYS: int = int(os.getenv("SUBSCRIPTION_ESCROW_REFUND_DAYS", "2"))
 
 
 settings = Settings()
