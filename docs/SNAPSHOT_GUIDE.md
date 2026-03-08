@@ -43,3 +43,9 @@ curl -X POST http://127.0.0.1:8000/api/v1/snapshots/1/ask \
 - Snapshot artifacts do not mutate after creation.
 - Snapshot list is DB-only for performance.
 - Full content is fetched from Pinata only when opened or used for Q&A.
+- Private Pinata setup (recommended):
+  - `PINATA_UPLOAD_URL=https://uploads.pinata.cloud/v3/files`
+  - `PINATA_UPLOAD_NETWORK=private`
+  - `PINATA_GATEWAY_BASE_URL=https://<your-gateway>.mypinata.cloud` (or your configured gateway base)
+  - `PINATA_GATEWAY_TOKEN=<gateway-token>`
+  - If you see gateway errors like `1010`, your gateway access controls/token are not configured for backend fetch.

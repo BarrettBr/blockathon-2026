@@ -14,7 +14,9 @@ npm run build
 ```
 
 ## Environment
-- `VITE_API_BASE_URL` (default: `http://localhost:8000/api/v1`)
+- `VITE_API_BASE_URL` (optional explicit override)
+- If not set, frontend auto-targets `http://<current-browser-host>:8000/api/v1`
+  - Example: if frontend is opened via `http://127.0.0.1:5173`, API defaults to `http://127.0.0.1:8000/api/v1`
 
 ## Main Structure
 - `src/main.ts` app bootstrap

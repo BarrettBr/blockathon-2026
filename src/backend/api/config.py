@@ -58,8 +58,10 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     PINATA_JWT: str = os.getenv("PINATA_JWT", "")
-    PINATA_UPLOAD_URL: str = os.getenv("PINATA_UPLOAD_URL", "https://api.pinata.cloud/pinning/pinJSONToIPFS")
-    PINATA_GATEWAY_BASE_URL: str = os.getenv("PINATA_GATEWAY_BASE_URL", "https://gateway.pinata.cloud/ipfs")
+    PINATA_UPLOAD_URL: str = os.getenv("PINATA_UPLOAD_URL", "https://uploads.pinata.cloud/v3/files")
+    PINATA_UPLOAD_NETWORK: str = os.getenv("PINATA_UPLOAD_NETWORK", "private")
+    PINATA_GATEWAY_BASE_URL: str = os.getenv("PINATA_GATEWAY_BASE_URL", "https://gateway.pinata.cloud")
+    PINATA_GATEWAY_TOKEN: str = os.getenv("PINATA_GATEWAY_TOKEN", "")
     PINATA_TIMEOUT_SECONDS: int = int(os.getenv("PINATA_TIMEOUT_SECONDS", "20"))
     SNAPSHOT_DEFAULT_DAYS: int = int(os.getenv("SNAPSHOT_DEFAULT_DAYS", "30"))
 

@@ -12,6 +12,7 @@ const createForm = reactive({
 });
 const question = ref("");
 const message = ref("");
+const creatingSnapshot = ref(false);
 
 async function refreshList() {
   await snapshot.loadList();
@@ -19,6 +20,8 @@ async function refreshList() {
 
 async function createSnapshot() {
   try {
+    creatingSnapshot.value = true;
+    message.value = "Creating snapshot...";
     const created = await snapshot.create({
       title: createForm.title || undefined,
       days: createForm.days || undefined,
@@ -29,6 +32,8 @@ async function createSnapshot() {
     await refreshList();
   } catch (error: any) {
     message.value = error?.response?.data?.detail || "Failed to create snapshot";
+  } finally {
+    creatingSnapshot.value = false;
   }
 }
 
@@ -80,7 +85,9 @@ onMounted(refreshList);
       </div>
 
       <div class="row-actions">
-        <button class="compact" @click="createSnapshot">Create Snapshot</button>
+        <button class="compact" :disabled="creatingSnapshot" @click="createSnapshot">
+          {{ creatingSnapshot ? "Creating..." : "Create Snapshot" }}
+        </button>
       </div>
     </article>
 
@@ -179,6 +186,10 @@ input, textarea {
   font-weight: 700;
   font-size: 0.86rem;
   cursor: pointer;
+}
+.compact:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
 }
 .compact.secondary { background: #4f79b8; }
 .table-wrap { overflow-x: auto; }

@@ -70,6 +70,8 @@ def approve_subscription_request(
     db: Session = Depends(get_db),
     current_user: UserProfileSchema = Depends(get_current_user),
 ):
+    if not payload.username:
+        payload.username = current_user.username
     return core.approve_subscription_request(subscription_id, payload, db)
 
 
@@ -126,4 +128,9 @@ def cancel_subscription(
     db: Session = Depends(get_db),
     current_user: UserProfileSchema = Depends(get_current_user),
 ):
-    return core.cancel_subscription_request(subscription_id, request, payload, db)
+    header_name = core.settings.VENDOR_SHARED_SECRET_HEADER
+    vendor_secret = request.headers.get(header_name, "").strip()
+    effective_payload = payload or SubscriptionCancelRequest()
+    if not vendor_secret and not effective_payload.username:
+        effective_payload.username = current_user.username
+    return core.cancel_subscription_request(subscription_id, request, effective_payload, db)

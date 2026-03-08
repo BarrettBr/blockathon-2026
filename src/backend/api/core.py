@@ -7,13 +7,14 @@ import json as _json
 import json
 import hmac
 import secrets
+import uuid
 from typing import Any, Optional
 from urllib import error as urllib_error
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from xrpl.clients import JsonRpcClient
 from xrpl.core.addresscodec import is_valid_classic_address
@@ -352,25 +353,69 @@ def _parse_snapshot_datetime(raw: Optional[str], field_name: str) -> Optional[da
         raise HTTPException(status_code=400, detail=f"Invalid {field_name}, expected ISO date/datetime") from exc
 
 
+def _encode_multipart_form(fields: dict[str, str], file_name: str, file_bytes: bytes) -> tuple[bytes, str]:
+    boundary = f"----equipay{uuid.uuid4().hex}"
+    body = bytearray()
+    for key, value in fields.items():
+        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode("utf-8"))
+        body.extend(f"{value}\r\n".encode("utf-8"))
+    body.extend(f"--{boundary}\r\n".encode("utf-8"))
+    body.extend(
+        f'Content-Disposition: form-data; name="file"; filename="{file_name}"\r\n'
+        "Content-Type: application/json\r\n\r\n".encode("utf-8")
+    )
+    body.extend(file_bytes)
+    body.extend("\r\n".encode("utf-8"))
+    body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+    return bytes(body), f"multipart/form-data; boundary={boundary}"
+
+
 # Upload full snapshot artifact JSON to Pinata and return CID + file id.
 def _upload_snapshot_to_pinata(snapshot_json: dict[str, Any], title: str) -> dict[str, Optional[str]]:
     if not settings.PINATA_JWT.strip():
         raise HTTPException(status_code=500, detail="PINATA_JWT is not configured")
 
-    payload = {
-        "pinataContent": snapshot_json,
-        "pinataMetadata": {"name": title},
-        "pinataOptions": {"cidVersion": 1},
-    }
-    request_obj = urllib_request.Request(
-        settings.PINATA_UPLOAD_URL,
-        data=_json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {settings.PINATA_JWT.strip()}",
-        },
-        method="POST",
-    )
+    network = settings.PINATA_UPLOAD_NETWORK.strip().lower() or "private"
+    upload_url = settings.PINATA_UPLOAD_URL.strip()
+    if "/v3/files" in upload_url:
+        payload_bytes, content_type = _encode_multipart_form(
+            fields={"network": network, "name": title},
+            file_name=f"{title.replace(' ', '_').lower()}.json",
+            file_bytes=_json.dumps(snapshot_json).encode("utf-8"),
+        )
+        request_obj = urllib_request.Request(
+            upload_url,
+            data=payload_bytes,
+            headers={
+                "Content-Type": content_type,
+                "Authorization": f"Bearer {settings.PINATA_JWT.strip()}",
+            },
+            method="POST",
+        )
+    else:
+        if network == "private":
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "PINATA_UPLOAD_NETWORK is 'private' but PINATA_UPLOAD_URL is not the v3 files endpoint. "
+                    "Use PINATA_UPLOAD_URL=https://uploads.pinata.cloud/v3/files for private uploads."
+                ),
+            )
+        payload = {
+            "pinataContent": snapshot_json,
+            "pinataMetadata": {"name": title},
+            "pinataOptions": {"cidVersion": 1},
+        }
+        request_obj = urllib_request.Request(
+            upload_url,
+            data=_json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {settings.PINATA_JWT.strip()}",
+            },
+            method="POST",
+        )
     try:
         with urllib_request.urlopen(request_obj, timeout=settings.PINATA_TIMEOUT_SECONDS) as response:
             body = response.read().decode("utf-8")
@@ -381,29 +426,61 @@ def _upload_snapshot_to_pinata(snapshot_json: dict[str, Any], title: str) -> dic
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Pinata upload failed: {exc}") from exc
 
-    cid = parsed.get("IpfsHash") or parsed.get("cid")
+    data = parsed.get("data") if isinstance(parsed, dict) else None
+    cid = parsed.get("IpfsHash") or parsed.get("cid") or (data.get("cid") if isinstance(data, dict) else None)
     if not cid:
         raise HTTPException(status_code=502, detail="Pinata upload succeeded but no CID returned")
-    return {"cid": cid, "file_id": parsed.get("id")}
+    file_id = parsed.get("id") or (data.get("id") if isinstance(data, dict) else None)
+    return {"cid": cid, "file_id": file_id}
 
 
 # Fetch snapshot artifact JSON from Pinata by CID.
 def _fetch_snapshot_from_pinata(cid: str) -> dict[str, Any]:
     gateway = settings.PINATA_GATEWAY_BASE_URL.rstrip("/")
-    request_obj = urllib_request.Request(
-        f"{gateway}/{urllib_parse.quote(cid)}",
-        headers={"Authorization": f"Bearer {settings.PINATA_JWT.strip()}"} if settings.PINATA_JWT.strip() else {},
-        method="GET",
-    )
-    try:
-        with urllib_request.urlopen(request_obj, timeout=settings.PINATA_TIMEOUT_SECONDS) as response:
-            body = response.read().decode("utf-8")
-            parsed = _json.loads(body)
-    except urllib_error.HTTPError as exc:
-        message = exc.read().decode("utf-8") if hasattr(exc, "read") else str(exc)
-        raise HTTPException(status_code=502, detail=f"Pinata fetch failed: {message}") from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Pinata fetch failed: {exc}") from exc
+    quoted_cid = urllib_parse.quote(cid)
+    candidate_urls: list[str] = []
+    if "{cid}" in gateway:
+        candidate_urls.append(gateway.replace("{cid}", quoted_cid))
+    else:
+        parsed_gateway = urllib_parse.urlparse(gateway)
+        path = (parsed_gateway.path or "").rstrip("/")
+        if path.endswith("/ipfs") or path.endswith("/files"):
+            candidate_urls.append(f"{gateway}/{quoted_cid}")
+        elif path:
+            candidate_urls.append(f"{gateway}/files/{quoted_cid}")
+            candidate_urls.append(f"{gateway}/ipfs/{quoted_cid}")
+        else:
+            candidate_urls.append(f"{gateway}/files/{quoted_cid}")
+            candidate_urls.append(f"{gateway}/ipfs/{quoted_cid}")
+
+    gateway_token = settings.PINATA_GATEWAY_TOKEN.strip()
+    headers = {}
+    if settings.PINATA_JWT.strip():
+        headers["Authorization"] = f"Bearer {settings.PINATA_JWT.strip()}"
+    if gateway_token:
+        headers["x-pinata-gateway-token"] = gateway_token
+
+    errors: list[str] = []
+    parsed: Any = None
+    for raw_url in candidate_urls:
+        url = raw_url
+        if gateway_token and "pinataGatewayToken=" not in url:
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}pinataGatewayToken={urllib_parse.quote(gateway_token)}"
+        request_obj = urllib_request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib_request.urlopen(request_obj, timeout=settings.PINATA_TIMEOUT_SECONDS) as response:
+                body = response.read().decode("utf-8")
+                parsed = _json.loads(body)
+                break
+        except urllib_error.HTTPError as exc:
+            message = exc.read().decode("utf-8") if hasattr(exc, "read") else str(exc)
+            errors.append(f"{url} -> {message}")
+        except Exception as exc:
+            errors.append(f"{url} -> {exc}")
+
+    if parsed is None:
+        raise HTTPException(status_code=502, detail=f"Pinata fetch failed: {' | '.join(errors)}")
 
     if not isinstance(parsed, dict):
         raise HTTPException(status_code=502, detail="Pinata returned invalid snapshot JSON")
@@ -2025,9 +2102,31 @@ def cancel_subscription_request(
     if row.request_status == "pending":
         row.status = "cancelled"
         row.request_status = "cancelled"
+        _record_history(
+            db=db,
+            user_wallet_address=row.user_wallet_address,
+            event_type="subscription_request_cancelled",
+            tx_hash=None,
+            counterparty_address=row.merchant_wallet_address,
+            amount=row.amount_xrp,
+            currency="XRP",
+            status=row.status,
+            note=f"Subscription request cancelled (vendor_tx_id={row.vendor_tx_id})",
+        )
     else:
         row.auto_renew = False
         row.status = "non_renewing"
+        _record_history(
+            db=db,
+            user_wallet_address=row.user_wallet_address,
+            event_type="subscription_non_renewing",
+            tx_hash=None,
+            counterparty_address=row.merchant_wallet_address,
+            amount=row.amount_xrp,
+            currency="XRP",
+            status=row.status,
+            note=f"Auto-renew disabled (vendor_tx_id={row.vendor_tx_id})",
+        )
     row.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(row)
@@ -2455,11 +2554,20 @@ def get_user_history(
 ) -> dict[str, Any]:
     rows = (
         db.query(HistoryEvent)
-        .filter(HistoryEvent.user_wallet_address == user_wallet_address)
+        .filter(
+            or_(
+                HistoryEvent.user_wallet_address == user_wallet_address,
+                HistoryEvent.counterparty_address == user_wallet_address,
+            )
+        )
         .order_by(HistoryEvent.created_at.desc())
         .limit(limit)
         .all()
     )
+    vendor_by_wallet = {
+        row.wallet_address: row.display_name
+        for row in db.query(Vendor).all()
+    }
     return _success(
         "User history",
         [
@@ -2472,6 +2580,7 @@ def get_user_history(
                 "currency": row.currency,
                 "status": row.status,
                 "note": row.note,
+                "vendor_name": vendor_by_wallet.get(row.counterparty_address),
                 "created_at": row.created_at.isoformat(),
             }
             for row in rows

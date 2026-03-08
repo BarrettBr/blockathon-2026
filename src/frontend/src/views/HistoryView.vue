@@ -51,6 +51,11 @@ async function runReview() {
 
 onMounted(load);
 watch(() => wallet.selectedWallet?.address, load);
+
+async function copyText(value: string) {
+  if (!value) return;
+  await navigator.clipboard.writeText(value);
+}
 </script>
 
 <template>
@@ -61,6 +66,7 @@ watch(() => wallet.selectedWallet?.address, load);
     </div>
 
     <div class="table-wrap">
+<<<<<<< HEAD
       <table>
         <thead>
           <tr>
@@ -86,6 +92,39 @@ watch(() => wallet.selectedWallet?.address, load);
           </tr>
         </tbody>
       </table>
+=======
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Type</th>
+          <th>Amount</th>
+          <th>Currency</th>
+          <th>Status</th>
+          <th>Tx Hash</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="row in history.entries" :key="row.id">
+          <td>{{ row.created_at }}</td>
+          <td>{{ row.event_type }}</td>
+          <td>{{ row.amount ?? "-" }}</td>
+          <td>{{ row.currency }}</td>
+          <td>{{ row.status }}</td>
+          <td>
+            <div v-if="row.tx_hash" class="tx-box">
+              <input :value="row.tx_hash" readonly />
+              <button class="copy-btn" @click="copyText(row.tx_hash)">Copy</button>
+            </div>
+            <span v-else>-</span>
+          </td>
+        </tr>
+        <tr v-if="history.entries.length === 0">
+          <td colspan="6">No history yet</td>
+        </tr>
+      </tbody>
+    </table>
+>>>>>>> de6a9a3 (Updated UX a lot with some UI changes, fixed history and work towards pinata fix)
     </div>
   </article>
 
@@ -169,6 +208,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 table { width: 100%; border-collapse: collapse; min-width: 720px; }
 th, td { border-bottom: 1px solid #e4efff; padding: 0.5rem; text-align: left; color: #35577f; }
 .table-wrap { overflow-x: auto; }
+<<<<<<< HEAD
 
 /* Modal */
 .modal-backdrop {
@@ -269,4 +309,34 @@ select {
 }
 .error { color: #b42318; font-weight: 600; }
 .empty { color: #8aa8cc; }
+=======
+table { min-width: 720px; }
+.tx-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 280px;
+}
+.tx-box input {
+  width: 210px;
+  max-width: 210px;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid #d6e4fb;
+  border-radius: 6px;
+  background: #f8fbff;
+  color: #35577f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.copy-btn {
+  border: 1px solid #d6e4fb;
+  border-radius: 6px;
+  background: #eef4ff;
+  color: #355a8f;
+  padding: 0.22rem 0.42rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+>>>>>>> de6a9a3 (Updated UX a lot with some UI changes, fixed history and work towards pinata fix)
 </style>

@@ -3,14 +3,37 @@
 
 import json
 import mimetypes
+import os
+import socket
 import urllib.request
 import urllib.error
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-EQUIPAY_BASE = "http://localhost:8000/api/v1"
-PORT = 7777
+EQUIPAY_BASE = os.getenv("EQUIPAY_BASE_URL", "http://127.0.0.1:8000/api/v1")
+PORT = int(os.getenv("NOVA_DEMO_PORT", "7777"))
+HOST = os.getenv("NOVA_DEMO_HOST", "127.0.0.1")
 STATIC_DIR = Path(__file__).parent
+
+
+def _is_port_available(host: str, port: int) -> bool:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind((host, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        sock.close()
+
+
+def _pick_port(host: str, preferred_port: int, max_tries: int = 20) -> int:
+    for port in range(preferred_port, preferred_port + max_tries):
+        if _is_port_available(host, port):
+            return port
+    raise RuntimeError(
+        f"No free port found for {host} in range {preferred_port}-{preferred_port + max_tries - 1}"
+    )
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -85,9 +108,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    server = HTTPServer(("localhost", PORT), Handler)
+    chosen_port = _pick_port(HOST, PORT)
+    if chosen_port != PORT:
+        print(f"  Port {PORT} is in use, using {chosen_port} instead.")
+
+    server = HTTPServer((HOST, chosen_port), Handler)
     print(f"\n  NovaBeat vendor demo")
-    print(f"  → http://localhost:{PORT}")
+    print(f"  → http://{HOST}:{chosen_port}")
     print(f"  → Proxying API calls to {EQUIPAY_BASE}")
     print(f"  → Serving files from {STATIC_DIR}")
     print(f"  Press Ctrl+C to stop\n")

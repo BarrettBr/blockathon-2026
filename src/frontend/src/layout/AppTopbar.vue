@@ -34,6 +34,8 @@ const walletBalance = computed(() => {
   return "--";
 });
 
+const accountLabel = computed(() => auth.username || "My Account");
+
 onMounted(async () => {
   if (!wallet.aggregateBalance) {
     await wallet.fetchAggregateBalance();
@@ -62,7 +64,7 @@ watch(
 			 @click="toggleMenu" 
 			 >
 			 <i class="pi pi-user-circle" style="font-size: 1.5rem; margin-right: 0.5rem;"></i>
-			 <span>My Account</span>
+			 <span>{{ accountLabel }}</span>
 			 <i class="pi pi-chevron-down" style="margin-left: 0.5rem; font-size: 0.8rem;"></i>
 		</Button>
 

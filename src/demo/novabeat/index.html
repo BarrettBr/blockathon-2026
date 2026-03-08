@@ -184,28 +184,50 @@
 		if (localStorage.getItem('nb_wallet'))       document.getElementById('cfg-wallet').value = localStorage.getItem('nb_wallet');
 		if (localStorage.getItem('nb_secret'))       document.getElementById('cfg-secret').value = localStorage.getItem('nb_secret');
 
+		function parseApiError(data, fallback) {
+			if (!data) return fallback;
+			if (typeof data.detail === 'string') return data.detail;
+			if (Array.isArray(data.detail)) {
+				return data.detail.map((item) => {
+					if (typeof item === 'string') return item;
+					if (item && typeof item === 'object') {
+						const loc = Array.isArray(item.loc) ? item.loc.join('.') : '';
+						const msg = item.msg || 'Invalid value';
+						return loc ? `${loc}: ${msg}` : msg;
+					}
+					return String(item);
+				}).join(' | ');
+			}
+			if (typeof data.message === 'string') return data.message;
+			return fallback;
+		}
+
 		async function registerVendor() {
 			const code   = document.getElementById('cfg-vendor-code').value.trim();
 			const name   = document.getElementById('cfg-display-name').value.trim();
 			const wallet = document.getElementById('cfg-wallet').value.trim();
 			const secret = document.getElementById('cfg-secret').value.trim();
 
-			if (!code || !name || !wallet || !secret) { showStatus('All fields required', false); return; }
+			if (!code || !name || !wallet) { showStatus('Vendor code, display name, and wallet are required.', false); return; }
 
 			try {
+				const payload = { vendor_code: code, display_name: name, wallet_address: wallet };
+				if (secret) payload.shared_secret = secret;
 				const resp = await fetch('/proxy/vendors/upsert', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ vendor_code: code, display_name: name, wallet_address: wallet, shared_secret: secret }),
+					body: JSON.stringify(payload),
 				});
 				const data = await resp.json();
-				if (!resp.ok) throw new Error(data.detail || 'Registration failed');
+				if (!resp.ok) throw new Error(parseApiError(data, 'Registration failed'));
 
 				localStorage.setItem('nb_vendor_code', code);
 				localStorage.setItem('nb_display_name', name);
 				localStorage.setItem('nb_wallet', wallet);
-				localStorage.setItem('nb_secret', secret);
-				vendorSecret = secret;
+				const finalSecret = (data?.data?.shared_secret || secret || '').trim();
+				localStorage.setItem('nb_secret', finalSecret);
+				document.getElementById('cfg-secret').value = finalSecret;
+				vendorSecret = finalSecret;
 				vendorCode   = code;
 				showStatus('Vendor registered ✓', true);
 			} catch (e) {
@@ -259,7 +281,7 @@
 					}),
 				});
 				const data = await resp.json();
-				if (!resp.ok) throw new Error(data.detail || 'Subscription request failed');
+				if (!resp.ok) throw new Error(parseApiError(data, 'Subscription request failed'));
 
 				document.getElementById('confirm-hash').textContent = data.data.contract_hash;
 				document.getElementById('subscribe-form').classList.add('hidden');

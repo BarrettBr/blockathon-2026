@@ -1,7 +1,10 @@
 import axios from "axios";
 
+const defaultHost =
+	(typeof window !== "undefined" && window.location?.hostname) || "127.0.0.1";
+
 const API_BASE_URL =
-	import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1";
+	import.meta.env.VITE_API_BASE_URL || `http://${defaultHost}:8000/api/v1`;
 
 const api = axios.create({
 	baseURL: API_BASE_URL,
@@ -100,17 +103,11 @@ export const apiHelper = {
 	listPendingSubscriptionRequests: (username: string) =>
 	api.get<ApiEnvelope<any[]>>(`/subscriptions/pending/${encodeURIComponent(username)}`),
 
-	approveSubscriptionRequest: (subscriptionId: number, payload: { username: string }) =>
+	approveSubscriptionRequest: (subscriptionId: number, payload: { username?: string } = {}) =>
 	api.post<ApiEnvelope<any>>(`/subscriptions/${subscriptionId}/approve`, payload),
 
-	cancelSubscription: (
-		subscriptionId: number,
-		payload?: { username?: string },
-		sharedSecret?: string,
-	) =>
-	api.post<ApiEnvelope<any>>(`/subscriptions/${subscriptionId}/cancel`, payload || {}, {
-		headers: sharedSecret ? { "X-Vendor-Secret": sharedSecret } : undefined,
-	}),
+	cancelSubscription: (subscriptionId: number, payload: { username?: string } = {}) =>
+	api.post<ApiEnvelope<any>>(`/subscriptions/${subscriptionId}/cancel`, payload),
 
 	getSubscriptionByContract: (contractHash: string) =>
 	api.get<ApiEnvelope<any>>(`/subscriptions/contract/${contractHash}`),

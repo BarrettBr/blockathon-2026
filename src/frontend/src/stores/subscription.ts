@@ -87,24 +87,15 @@ export const useSubscriptionStore = defineStore("subscription", {
       }
     },
 
-	async approve(subscriptionId: number, username: string) {
-		const res = await apiHelper.approveSubscriptionRequest(subscriptionId, {
-			username,
-		});
+    async approve(subscriptionId: number) {
+		const res = await apiHelper.approveSubscriptionRequest(subscriptionId);
 		return res.data.data;
 	},
 
-	async cancelAsUser(subscriptionId: number, username: string) {
-		const res = await apiHelper.cancelSubscription(subscriptionId, {
-			username,
-		});
+	async cancel(subscriptionId: number) {
+		const res = await apiHelper.cancelSubscription(subscriptionId);
 		return res.data.data;
 	},
-
-    async cancelAsVendor(subscriptionId: number, sharedSecret: string) {
-      const res = await apiHelper.cancelSubscription(subscriptionId, {}, sharedSecret);
-      return res.data.data;
-    },
 
     async loadAllForWallet(walletAddress: string) {
       if (!walletAddress) {
@@ -117,7 +108,8 @@ export const useSubscriptionStore = defineStore("subscription", {
         const res = await apiHelper.listSubscriptions();
         this.list = (res.data.data || []).filter(
           (row: any) =>
-            row.user_wallet_address === walletAddress || row.merchant_wallet_address === walletAddress,
+            (row.user_wallet_address === walletAddress || row.merchant_wallet_address === walletAddress) &&
+            row.status === "active",
         );
         return this.list;
       } catch (error: any) {

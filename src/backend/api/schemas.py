@@ -24,7 +24,7 @@ class VendorCreateRequest(BaseModel):
     display_name: str = Field(..., min_length=2, max_length=128)
     wallet_address: str = Field(..., min_length=25)
     webhook_url: Optional[str] = Field(default=None, max_length=512)
-    shared_secret: Optional[str] = Field(default=None, min_length=8, max_length=256)
+    shared_secret: Optional[str] = Field(default=None, min_length=4, max_length=256)
 
 
 class VendorUpdateRequest(BaseModel):
@@ -54,7 +54,7 @@ class SubscriptionRequestCreateRequest(BaseModel):
 
 
 class SubscriptionApproveRequest(BaseModel):
-    username: str
+    username: Optional[str] = None
 
 class SubscriptionProcessCycleRequest(BaseModel):
     username: str

@@ -19,6 +19,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Run everything together (backend + frontend + vendor demo):
+```bash
+make demo-all
+```
+
 Run from `src/backend/api`:
 ```bash
 uvicorn main:app --reload
@@ -57,8 +62,10 @@ Vendor auth/webhooks:
 
 Snapshot/AI:
 - `PINATA_JWT`
-- `PINATA_UPLOAD_URL` (default `https://api.pinata.cloud/pinning/pinJSONToIPFS`)
-- `PINATA_GATEWAY_BASE_URL` (default `https://gateway.pinata.cloud/ipfs`)
+- `PINATA_UPLOAD_URL` (default `https://uploads.pinata.cloud/v3/files`)
+- `PINATA_UPLOAD_NETWORK` (default `private`)
+- `PINATA_GATEWAY_BASE_URL` (default `https://gateway.pinata.cloud`)
+- `PINATA_GATEWAY_TOKEN` (recommended for private gateway access)
 - `PINATA_TIMEOUT_SECONDS`
 - `SNAPSHOT_DEFAULT_DAYS`
 - `GEMINI_API_KEY`
