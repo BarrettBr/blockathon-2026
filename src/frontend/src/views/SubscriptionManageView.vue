@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useWalletStore } from "@/stores/wallet";
 import { useSubscriptionStore } from "@/stores/subscription";
 import { useAuthStore } from "@/stores/auth";
@@ -13,10 +13,51 @@ const errorMessage = ref("");
 const pendingRefreshing = ref(false);
 const approvingId = ref<number | null>(null);
 const cancellingId = ref<number | null>(null);
+const sortKey = ref<"id" | "vendor_tx_id" | "status" | "request_status" | "amount_xrp" | "escrow_status">("id");
+const sortDir = ref<"asc" | "desc">("desc");
 
 function setError(err: any, fallback: string) {
   errorMessage.value = err?.response?.data?.detail || fallback;
   message.value = "";
+}
+
+function formatStatusLabel(value: string): string {
+  return String(value || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const sortedCurrentSubscriptions = computed(() => {
+  const rows = [...subscription.list];
+  const key = sortKey.value;
+  const direction = sortDir.value === "asc" ? 1 : -1;
+  return rows.sort((a: any, b: any) => {
+    if (key === "id") return (Number(a.id) - Number(b.id)) * direction;
+    if (key === "amount_xrp") return (Number(a.amount_xrp) - Number(b.amount_xrp)) * direction;
+    const aValue = String(a[key] ?? "").toLowerCase();
+    const bValue = String(b[key] ?? "").toLowerCase();
+    if (aValue < bValue) return -1 * direction;
+    if (aValue > bValue) return 1 * direction;
+    return 0;
+  });
+});
+
+function setSort(
+  key: "id" | "vendor_tx_id" | "status" | "request_status" | "amount_xrp" | "escrow_status",
+) {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === "asc" ? "desc" : "asc";
+    return;
+  }
+  sortKey.value = key;
+  sortDir.value = key === "id" ? "desc" : "asc";
+}
+
+function sortIndicator(
+  key: "id" | "vendor_tx_id" | "status" | "request_status" | "amount_xrp" | "escrow_status",
+): string {
+  if (sortKey.value !== key) return "";
+  return sortDir.value === "asc" ? " ▲" : " ▼";
 }
 
 async function refreshSubscriptions() {
@@ -109,13 +150,13 @@ async function copyText(value: string) {
 <template>
 	<section class="stack">
 		<article class="panel">
-			<h3>Manage Subscriptions</h3>
+			<h3>Manage Plans</h3>
 			<p>Connected wallet: <strong>{{ wallet.selectedWallet?.address || "No wallet selected" }}</strong></p>
 		</article>
 
 		<article class="panel">
       <div class="panel-head">
-			  <h3>Pending Requests</h3>
+			  <h3>Pending Approvals</h3>
         <button class="compact secondary" :disabled="pendingRefreshing" @click="refreshPending">
           {{ pendingRefreshing ? "Refreshing..." : "Refresh" }}
         </button>
@@ -125,9 +166,9 @@ async function copyText(value: string) {
 					<thead>
 						<tr>
 							<th>ID</th>
-							<th>Vendor Tx</th>
+							<th>Reference ID</th>
 							<th>Amount</th>
-							<th>Interval</th>
+							<th>Billing Cycle</th>
 							<th>Status</th>
 							<th>Actions</th>
 						</tr>
@@ -137,8 +178,8 @@ async function copyText(value: string) {
 							<td>#{{ s.id }}</td>
 							<td>{{ s.vendor_tx_id }}</td>
 							<td>{{ s.amount_xrp }} XRP</td>
-							<td>{{ s.interval_days }}d</td>
-							<td>{{ s.request_status }}</td>
+							<td>Every {{ s.interval_days }} day<span v-if="s.interval_days !== 1">s</span></td>
+							<td><span class="status-pill">{{ formatStatusLabel(s.request_status) }}</span></td>
 							<td class="actions">
 								<button class="compact" :disabled="approvingId === s.id" @click="approveRequest(s.id)">
                   {{ approvingId === s.id ? "Approving..." : "Approve" }}
@@ -149,7 +190,7 @@ async function copyText(value: string) {
 							</td>
 						</tr>
 						<tr v-if="subscription.pending.length === 0">
-							<td colspan="6">No pending requests.</td>
+							<td colspan="6">No plans waiting for approval.</td>
 						</tr>
 					</tbody>
 				</table>
@@ -165,24 +206,24 @@ async function copyText(value: string) {
 				<table>
 					<thead>
 						<tr>
-							<th>ID</th>
-							<th>Vendor Tx</th>
-							<th>Status</th>
-							<th>Request</th>
-							<th>Amount</th>
-							<th>Escrow</th>
-							<th>Last Tx</th>
+							<th><button class="th-sort" @click="setSort('id')">ID{{ sortIndicator("id") }}</button></th>
+							<th><button class="th-sort" @click="setSort('vendor_tx_id')">Reference ID{{ sortIndicator("vendor_tx_id") }}</button></th>
+							<th><button class="th-sort" @click="setSort('status')">Status{{ sortIndicator("status") }}</button></th>
+							<th><button class="th-sort" @click="setSort('request_status')">Approval{{ sortIndicator("request_status") }}</button></th>
+							<th><button class="th-sort" @click="setSort('amount_xrp')">Amount{{ sortIndicator("amount_xrp") }}</button></th>
+							<th><button class="th-sort" @click="setSort('escrow_status')">Escrow State{{ sortIndicator("escrow_status") }}</button></th>
+							<th>Last Transaction</th>
 							<th>Actions</th>
 						</tr>
 					</thead>
 					<tbody>
-						<tr v-for="s in subscription.list" :key="s.id">
+						<tr v-for="s in sortedCurrentSubscriptions" :key="s.id">
 							<td>#{{ s.id }}</td>
 							<td>{{ s.vendor_tx_id }}</td>
-							<td>{{ s.status }}</td>
-							<td>{{ s.request_status }}</td>
+							<td><span class="status-pill">{{ formatStatusLabel(s.status) }}</span></td>
+							<td><span class="status-pill">{{ formatStatusLabel(s.request_status) }}</span></td>
 							<td>{{ s.amount_xrp }} XRP</td>
-							<td>{{ s.escrow_status }}</td>
+							<td><span class="status-pill">{{ formatStatusLabel(s.escrow_status) }}</span></td>
 							<td>
 								<div v-if="s.last_tx_hash" class="tx-box">
 									<input :value="s.last_tx_hash" readonly />
@@ -197,7 +238,7 @@ async function copyText(value: string) {
 							</td>
 						</tr>
 						<tr v-if="subscription.list.length === 0">
-							<td colspan="8">No subscriptions for the connected wallet.</td>
+							<td colspan="8">No active plans for this wallet yet.</td>
 						</tr>
 					</tbody>
 				</table>
@@ -267,7 +308,26 @@ th, td {
 	color: #35577f;
 	font-size: 0.9rem;
 }
+.th-sort {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
 .actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.status-pill {
+  display: inline-block;
+  border: 1px solid #d7e5fb;
+  background: #f4f8ff;
+  border-radius: 999px;
+  padding: 0.16rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #3b5f8f;
+}
 .tx-box {
 	display: inline-flex;
 	align-items: center;

@@ -55,7 +55,7 @@ onMounted(async () => {
 }
 
 .content {
-  padding: 1.2rem;
+  padding: calc(68px + 1.2rem) 1.2rem 1.2rem;
   max-width: 1280px;
   margin: 0 auto;
 }

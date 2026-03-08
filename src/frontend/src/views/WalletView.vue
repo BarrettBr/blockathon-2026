@@ -174,19 +174,22 @@ watch(
 <template>
   <section class="wallet-stack">
     <article class="panel">
-      <h3>Connect a Wallet</h3>
-      <label>Wallet Seed</label>
-      <input v-model="seedInput" placeholder="sEd..." />
+      <h3>Add Wallet</h3>
+      <label>Secret Seed</label>
+      <input v-model="seedInput" placeholder="sEdExample..." />
 
-      <label>Wallet Shortcut Name</label>
+      <label>Wallet Nickname</label>
       <input v-model="nicknameInput" placeholder="Main Wallet" />
 
-      <button @click="connectWallet" :disabled="loading">Connect Wallet</button>
+      <button @click="connectWallet" :disabled="loading">Add Wallet</button>
     </article>
 
     <article class="panel">
       <h3>Connected Wallets</h3>
-      <p class="meta"><strong>Aggregate:</strong> {{ aggregateXrp }} XRP • {{ aggregateRlusd }} RLUSD</p>
+      <div class="summary-chips">
+        <span class="chip"><strong>Total:</strong> {{ aggregateXrp }} XRP</span>
+        <span class="chip"><strong>Total:</strong> {{ aggregateRlusd }} RLUSD</span>
+      </div>
 
       <div class="table-wrap">
         <table>
@@ -202,8 +205,8 @@ watch(
               <td>{{ w.nickname }}</td>
               <td>{{ w.address }}</td>
               <td class="actions">
-                <button class="small" @click="wallet.selectWallet(w.link_id)">Use</button>
-                <button class="small danger" @click="removeWallet(w.link_id)">Delete</button>
+                <button class="small" @click="wallet.selectWallet(w.link_id)">Use this Wallet</button>
+                <button class="small danger" @click="removeWallet(w.link_id)">Remove</button>
               </td>
             </tr>
             <tr v-if="wallet.wallets.length === 0">
@@ -221,23 +224,23 @@ watch(
     </article>
 
     <article class="panel">
-      <h3>Selected Wallet</h3>
-      <div class="meta"><strong>Name:</strong> {{ selectedNickname || "None" }}</div>
+      <h3>Currently Using</h3>
+      <div class="meta"><strong>Wallet:</strong> <span class="value-chip">{{ selectedNickname || "None" }}</span></div>
       <div class="meta"><strong>Address:</strong> {{ selectedAddress || "None" }}</div>
-      <div class="meta" v-if="wallet.balance"><strong>XRP:</strong> {{ xrpDisplay }}</div>
-      <div class="meta" v-if="wallet.balance"><strong>RLUSD:</strong> {{ rlusdDisplay }}</div>
+      <div class="meta" v-if="wallet.balance"><strong>XRP:</strong> <span class="value-chip">{{ xrpDisplay }}</span></div>
+      <div class="meta" v-if="wallet.balance"><strong>RLUSD:</strong> <span class="value-chip">{{ rlusdDisplay }}</span></div>
     </article>
 
     <article class="panel">
-      <h3>Prepare RLUSD (Trustline + Mint)</h3>
-      <label>Mint Amount</label>
+      <h3>Add Demo RLUSD</h3>
+      <label>Amount to Add</label>
       <input v-model.number="bootstrapAmount" type="number" min="0.000001" step="0.000001" />
-      <button @click="bootstrapRlusd" :disabled="loading || !wallet.selectedWallet">Bootstrap RLUSD</button>
+      <button @click="bootstrapRlusd" :disabled="loading || !wallet.selectedWallet">Add RLUSD</button>
     </article>
 
     <article class="panel">
-      <h3>Send Assets</h3>
-      <p class="meta">Using wallet: <strong>{{ selectedNickname || "None" }}</strong></p>
+      <h3>Send Money</h3>
+      <p class="meta">Using wallet: <span class="value-chip">{{ selectedNickname || "None" }}</span></p>
 
       <label>Destination (Wallet Address or Shortcut Name)</label>
       <input v-model="destination" placeholder="r... or Savings Wallet" />
@@ -297,7 +300,29 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   background: #5e86bf;
 }
 .danger { background: #cf6f6a; }
+.summary-chips {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.chip {
+  border-radius: 999px;
+  border: 1px solid #d6e4fb;
+  background: #eef4ff;
+  color: #355a8f;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
 .meta { color: #284a73; font-size: 0.92rem; word-break: break-all; margin: 0; }
+.value-chip {
+  border-radius: 999px;
+  border: 1px solid #d6e4fb;
+  background: #f4f8ff;
+  color: #355a8f;
+  padding: 0.12rem 0.52rem;
+  font-weight: 700;
+}
 .hint { margin: 0; color: #3d6191; font-size: 0.87rem; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 .field { display: grid; gap: 0.45rem; }

@@ -62,11 +62,11 @@ onMounted(refreshList);
 <template>
   <section class="stack">
     <article class="panel">
-      <h3>Create Financial Snapshot</h3>
-      <p>Creates an immutable snapshot artifact from current payments/subscriptions and stores it on Pinata.</p>
+      <h3>Create Financial Report</h3>
+      <p>Save a read-only report of your spending and subscriptions so you can review it later.</p>
 
-      <label>Title (optional)</label>
-      <input v-model="createForm.title" placeholder="April snapshot before moving" />
+      <label>Report Name (optional)</label>
+      <input v-model="createForm.title" placeholder="April report before moving" />
 
       <label>Quick Range: Last N Days</label>
       <input v-model.number="createForm.days" type="number" min="1" max="3650" />
@@ -86,14 +86,14 @@ onMounted(refreshList);
 
       <div class="row-actions">
         <button class="compact" :disabled="creatingSnapshot" @click="createSnapshot">
-          {{ creatingSnapshot ? "Creating..." : "Create Snapshot" }}
+          {{ creatingSnapshot ? "Creating..." : "Create Report" }}
         </button>
       </div>
     </article>
 
     <article class="panel">
       <div class="panel-header">
-        <h3>Snapshot List</h3>
+        <h3>Saved Reports</h3>
         <button class="compact secondary" @click="refreshList">Refresh</button>
       </div>
       <div class="table-wrap">
@@ -115,10 +115,10 @@ onMounted(refreshList);
               <td>{{ row.created_at }}</td>
               <td>{{ row.period_start }} -> {{ row.period_end }}</td>
               <td>{{ row.summary_total_spend_xrp }}</td>
-              <td><button class="compact" @click="openSnapshot(row.id)">Open</button></td>
+              <td><button class="compact" @click="openSnapshot(row.id)">Open Report</button></td>
             </tr>
             <tr v-if="snapshot.list.length === 0">
-              <td colspan="6">No snapshots yet.</td>
+              <td colspan="6">No reports yet.</td>
             </tr>
           </tbody>
         </table>
@@ -126,15 +126,15 @@ onMounted(refreshList);
     </article>
 
     <article v-if="snapshot.selected" class="panel">
-      <h3>Snapshot Details</h3>
+      <h3>Report Details</h3>
       <p><strong>{{ snapshot.selected.title }}</strong></p>
       <p>Period: {{ snapshot.selected.period_start }} -> {{ snapshot.selected.period_end }}</p>
       <p>Total: {{ snapshot.selected.summary_total_spend_xrp }} XRP</p>
       <p>Subscriptions: {{ snapshot.selected.summary_total_subscription_xrp }} XRP</p>
       <p>One-time payments: {{ snapshot.selected.summary_total_one_time_xrp }} XRP</p>
-      <p>CID: {{ snapshot.selected.pinata_cid }}</p>
+      <p class="cid">Record ID: {{ snapshot.selected.pinata_cid }}</p>
 
-      <label>Ask About This Snapshot</label>
+      <label>Ask About This Report</label>
       <textarea v-model="question" rows="4" placeholder="How much of my spending is recurring vs one-time?" />
       <button class="compact" @click="askQuestion">Ask Gemini</button>
 
@@ -211,6 +211,7 @@ th, td {
 .answer h4 { margin: 0 0 0.4rem; color: #1f467d; }
 .answer p { margin: 0; color: #35577f; white-space: pre-wrap; }
 .message { color: #28558e; margin: 0; font-weight: 600; }
+.cid { color: #5f7ea8; font-size: 0.88rem; word-break: break-all; }
 @media (max-width: 900px) {
   .date-grid { grid-template-columns: 1fr; }
 }

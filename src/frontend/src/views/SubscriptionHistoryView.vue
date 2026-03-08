@@ -22,6 +22,18 @@ function formatEventLabel(eventType: string) {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function formatDateLabel(value: string): string {
+  if (!value) return "-";
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return value;
+  return dt.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 async function copyText(value: string) {
   if (!value) return;
   await navigator.clipboard.writeText(value);
@@ -30,7 +42,7 @@ async function copyText(value: string) {
 
 <template>
   <article class="panel">
-    <h3>Subscription History</h3>
+    <h3>Plan History</h3>
     <p>Connected wallet: <strong>{{ wallet.selectedWallet?.address || "No wallet selected" }}</strong></p>
 
     <div class="table-wrap">
@@ -38,17 +50,17 @@ async function copyText(value: string) {
         <thead>
           <tr>
             <th>Date</th>
-            <th>Event</th>
-            <th>Vendor</th>
+            <th>Activity</th>
+            <th>Business</th>
             <th>Amount</th>
             <th>Status</th>
-            <th>Counterparty</th>
-            <th>Tx Hash</th>
+            <th>Counterparty Wallet</th>
+            <th>Transaction</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="row in subscription.history" :key="row.id">
-            <td>{{ row.created_at }}</td>
+            <td>{{ formatDateLabel(row.created_at) }}</td>
             <td><span class="event-pill">{{ formatEventLabel(row.event_type) }}</span></td>
             <td>{{ row.vendor_name || row.note || "-" }}</td>
             <td>{{ row.amount ?? "-" }} {{ row.currency }}</td>

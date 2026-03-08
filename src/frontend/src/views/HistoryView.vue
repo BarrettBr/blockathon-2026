@@ -52,6 +52,35 @@ async function runReview() {
 onMounted(load);
 watch(() => wallet.selectedWallet?.address, load);
 
+function formatEventLabel(eventType: string): string {
+  const labels: Record<string, string> = {
+    subscription_cycle_escrow_lock: "Subscription Locked",
+    subscription_non_renewing: "Auto-Renew Turned Off",
+    subscription_request_cancelled: "Subscription Request Canceled",
+    payment_sent: "Payment Sent",
+    payment_sent_rlusd: "RLUSD Payment Sent",
+    rlusd_minted: "RLUSD Added",
+  };
+  if (labels[eventType]) return labels[eventType];
+  return String(eventType || "")
+    .replace(/^subscription_/, "Subscription ")
+    .replace(/^payment_/, "Payment ")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatDateLabel(value: string): string {
+  if (!value) return "-";
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return value;
+  return dt.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 async function copyText(value: string) {
   if (!value) return;
   await navigator.clipboard.writeText(value);
@@ -70,29 +99,35 @@ async function copyText(value: string) {
     <div class="table-wrap">
       <table>
         <thead>
-          <tr>
-            <th>Date</th>
-            <th>Type</th>
-            <th>Amount</th>
-            <th>Currency</th>
-            <th>Status</th>
-            <th>Tx Hash</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in history.entries" :key="row.id">
-            <td>{{ row.created_at }}</td>
-            <td>{{ row.event_type }}</td>
-            <td>{{ row.amount ?? "-" }}</td>
-            <td>{{ row.currency }}</td>
-            <td>{{ row.status }}</td>
-            <td>{{ row.tx_hash ?? "-" }}</td>
-          </tr>
-          <tr v-if="history.entries.length === 0">
-            <td colspan="6">No history yet</td>
-          </tr>
-        </tbody>
-      </table>
+        <tr>
+          <th>Date</th>
+          <th>Activity</th>
+          <th>Vendor / Service</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>Transaction</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="row in history.entries" :key="row.id">
+          <td>{{ formatDateLabel(row.created_at) }}</td>
+          <td><span class="event-pill">{{ formatEventLabel(row.event_type) }}</span></td>
+          <td>{{ row.vendor_name || row.note || "-" }}</td>
+          <td>{{ row.amount ?? "-" }} {{ row.currency }}</td>
+          <td><span class="status-pill">{{ row.status }}</span></td>
+          <td>
+            <div v-if="row.tx_hash" class="tx-box">
+              <input :value="row.tx_hash" readonly />
+              <button class="copy-btn" @click="copyText(row.tx_hash)">Copy</button>
+            </div>
+            <span v-else>-</span>
+          </td>
+        </tr>
+        <tr v-if="history.entries.length === 0">
+          <td colspan="6">No payment or subscription activity yet.</td>
+        </tr>
+      </tbody>
+    </table>
     </div>
   </article>
 
@@ -204,6 +239,44 @@ td {
 }
 .table-wrap {
   overflow-x: auto;
+}
+.event-pill,
+.status-pill {
+  display: inline-block;
+  border: 1px solid #d7e5fb;
+  background: #f4f8ff;
+  border-radius: 999px;
+  padding: 0.16rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #3b5f8f;
+}
+.tx-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 280px;
+}
+.tx-box input {
+  width: 210px;
+  max-width: 210px;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid #d6e4fb;
+  border-radius: 6px;
+  background: #f8fbff;
+  color: #35577f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.copy-btn {
+  border: 1px solid #d6e4fb;
+  border-radius: 6px;
+  background: #eef4ff;
+  color: #355a8f;
+  padding: 0.22rem 0.42rem;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 /* Modal */

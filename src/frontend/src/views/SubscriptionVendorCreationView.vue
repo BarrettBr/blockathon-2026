@@ -96,33 +96,34 @@ async function regenerateSecret() {
 <template>
   <section class="stack">
     <article class="panel">
-      <h3>Vendor Creation</h3>
+      <h3>Business Setup</h3>
+      <p class="helper">Set up your business profile so EquiPay can send subscription updates to your backend.</p>
 
-      <label>Vendor Code</label>
+      <label>Business Code</label>
       <input v-model="form.vendor_code" placeholder="spotify_us" />
 
-      <label>Display Name</label>
+      <label>Business Name</label>
       <input v-model="form.display_name" placeholder="Spotify US" />
 
-      <label>Vendor Wallet Address</label>
+      <label>Payout Wallet Address</label>
       <input v-model="form.wallet_address" placeholder="rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe" />
 
       <label>Webhook URL</label>
       <input v-model="form.webhook_url" placeholder="https://vendor.example.com/equipay/webhook" />
 
       <div class="actions">
-        <button class="compact" @click="saveVendor">Save Vendor</button>
-        <button class="compact secondary" @click="updateVendor">Update Vendor</button>
+        <button class="compact" @click="saveVendor">Save Business</button>
+        <button class="compact secondary" @click="updateVendor">Update Business</button>
       </div>
 
-      <label>Vendor Shared Secret</label>
+      <label>Shared Secret</label>
       <input
         v-model="vendorSecret"
-        placeholder="Paste full shared secret here to load/update vendor settings"
+        placeholder="Paste your full shared secret to load or update this profile"
       />
 
       <div class="actions">
-        <button class="compact secondary" @click="loadVendor">Load Vendor</button>
+        <button class="compact secondary" @click="loadVendor">Load Profile</button>
         <button class="compact secondary" @click="regenerateSecret">Regenerate Secret</button>
       </div>
 
@@ -143,6 +144,7 @@ async function regenerateSecret() {
   max-width: 1200px;
 }
 h3 { margin: 0 0 0.7rem; color: #1f467d; }
+.helper { margin: 0 0 0.55rem; color: #5d7ea8; }
 label { display: block; color: #355880; font-size: 0.9rem; margin-top: 0.45rem; }
 input {
   width: 100%;

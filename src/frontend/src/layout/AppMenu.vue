@@ -3,18 +3,18 @@ import AppMenuItem from "./AppMenuItem.vue";
 
 const items = [
   { label: "Dashboard", to: "/dashboard" },
-  { label: "Wallet", to: "/wallet" },
+  { label: "Wallets & Transfers", to: "/wallet" },
   {
     label: "Subscriptions",
     children: [
-      { label: "Vendor Creation", to: "/subscriptions/vendor-creation" },
-      { label: "Manage Subscriptions", to: "/subscriptions/manage" },
-      { label: "Subscription History", to: "/subscriptions/history" },
+      { label: "Vendor Setup", to: "/subscriptions/vendor-creation" },
+      { label: "Manage Plans", to: "/subscriptions/manage" },
+      { label: "Plan History", to: "/subscriptions/history" },
     ],
   },
-  { label: "Snapshot", to: "/snapshots" },
-  { label: "Spending Guard", to: "/spending-guard" },
-  { label: "History", to: "/history" },
+  { label: "Financial Snapshots", to: "/snapshots" },
+  { label: "Monthly Limit", to: "/spending-guard" },
+  { label: "Payment History", to: "/history" },
 ];
 </script>
 

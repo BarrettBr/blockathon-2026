@@ -93,9 +93,11 @@ watch(
   padding: 0 1.25rem;
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(8px);
-  position: sticky;
+  position: fixed;
   top: 0;
-  z-index: 10;
+  left: 260px;
+  right: 0;
+  z-index: 18;
 }
 
 .menu-btn {
@@ -133,7 +135,11 @@ watch(
   font-weight: 600;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 991px) {
+  .topbar {
+    left: 0;
+  }
+
   .menu-btn {
     display: inline-grid;
     place-items: center;
