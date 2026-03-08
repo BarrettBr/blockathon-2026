@@ -1,18 +1,18 @@
 """Main app wiring and local run entrypoint."""
 
 from contextlib import asynccontextmanager
+import logging
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from xrpl.asyncio.clients import AsyncJsonRpcClient
+from xrpl.models.requests import AccountInfo
 
 from api import router as api_router
 from config import settings
 from db import init_db
-from contextlib import asynccontextmanager
-from xrpl.clients import JsonRpcClient
-from xrpl.models.requests import AccountInfo
-import logging
+
 logger = logging.getLogger("equipay")
 
 
@@ -20,16 +20,20 @@ logger = logging.getLogger("equipay")
 async def lifespan(_app: FastAPI):
     """Initialize resources once at startup."""
     init_db()
-    _check_issuer()
+    await _check_issuer()
     yield
 
-def _check_issuer():
+
+async def _check_issuer():
     if not settings.RLUSD_ISSUER:
         logger.warning("⚠️  RLUSD_ISSUER is not configured")
         return
     try:
-        client = JsonRpcClient(settings.XRPL_RPC_URL)
-        result = client.request(AccountInfo(account=settings.RLUSD_ISSUER, ledger_index="current")).result
+        client = AsyncJsonRpcClient(settings.XRPL_RPC_URL)
+        response = await client.request(
+            AccountInfo(account=settings.RLUSD_ISSUER, ledger_index="current")
+        )
+        result = response.result
         if "account_data" not in result:
             logger.warning(f"⚠️  RLUSD issuer {settings.RLUSD_ISSUER} NOT FOUND on {settings.XRPL_NETWORK} — re-fund and update RLUSD_ISSUER in .env")
         else:
@@ -57,5 +61,4 @@ app.include_router(api_router, prefix=settings.API_PREFIX)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host=settings.HOST, port=settings.PORT, reload=settings.DEBUG)
-
 
