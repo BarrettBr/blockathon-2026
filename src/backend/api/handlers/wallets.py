@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 import core
 from db import get_db
-from schemas import ApiResponse, BootstrapRlusdRequest, WalletConnectRequest, WalletImportRequest, UserProfileSchema
+from schemas import ApiResponse, BootstrapRlusdRequest, PrepareRlusdRequest, WalletConnectRequest, WalletImportRequest, UserProfileSchema
 from handlers.auth import get_current_user
 
 
@@ -42,6 +42,15 @@ def bootstrap_rlusd_wallet(
         current_user: UserProfileSchema = Depends(get_current_user)
 ):
     return core.bootstrap_rlusd_wallet(payload, db)
+
+
+@router.post("/wallets/prepare-rlusd", response_model=ApiResponse)
+def prepare_rlusd_wallet(
+        payload: PrepareRlusdRequest,
+        db: Session = Depends(get_db),
+        current_user: UserProfileSchema = Depends(get_current_user)
+):
+    return core.prepare_rlusd_wallet(payload, db)
 
 
 @router.get("/wallets", response_model=ApiResponse)

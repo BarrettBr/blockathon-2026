@@ -50,6 +50,25 @@ function friendlyEventName(eventType: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function signedAmountText(eventType: string, amount: unknown, currency: string): string {
+  const value = toNumber(amount);
+  const event = String(eventType || "").toLowerCase();
+  const isIncoming = event === "rlusd_minted" || event === "rlusd_bootstrap";
+  const isOutgoing = event.startsWith("payment_") || event.startsWith("subscription_");
+  const sign = isIncoming ? "+" : isOutgoing ? "-" : "";
+  const resolvedCurrency =
+    (currency || "").trim() ||
+    (event.startsWith("subscription_") ? "RLUSD" : "XRP");
+  return `${sign}${fmtAmount(value)} ${resolvedCurrency}`;
+}
+
+function amountTone(eventType: string): string {
+  const event = String(eventType || "").toLowerCase();
+  if (event === "rlusd_minted" || event === "rlusd_bootstrap") return "amount-positive";
+  if (event.startsWith("payment_") || event.startsWith("subscription_")) return "amount-negative";
+  return "amount-neutral";
+}
+
 const xrpBalance = computed(() => toNumber(data.value?.balance_xrp));
 const rlusdBalance = computed(() => toNumber(data.value?.balance_rlusd));
 const monthlyLimit = computed(() => {
@@ -59,7 +78,9 @@ const monthlyLimit = computed(() => {
 const monthlyLocked = computed(() => toNumber(data.value?.this_month?.locked));
 const monthlyRemaining = computed(() => toNumber(data.value?.monthly_guard?.remaining));
 const monthlySpentGuard = computed(() => toNumber(data.value?.monthly_guard?.spent));
-const lockedInEscrow = computed(() => toNumber(data.value?.locked_in_escrow_xrp));
+const lockedInEscrow = computed(() =>
+  toNumber(data.value?.locked_in_escrow_rlusd ?? data.value?.locked_in_escrow_xrp),
+);
 
 const chartSpent = computed(() => monthlySpentGuard.value);
 const chartReserved = computed(() => monthlyLocked.value);
@@ -98,7 +119,8 @@ const recentActivity = computed(() => {
   return rows.map((row: any) => ({
     key: `${row.tx_hash || "no-hash"}-${row.created_at || ""}`,
     label: friendlyEventName(String(row.event_type || "")),
-    amountText: `${fmtAmount(toNumber(row.amount || 0))} ${row.currency || "XRP"}`,
+    amountText: signedAmountText(String(row.event_type || ""), row.amount, String(row.currency || "XRP")),
+    amountTone: amountTone(String(row.event_type || "")),
     dateText: formatDateLabel(String(row.created_at || "")),
   }));
 });
@@ -123,7 +145,7 @@ const upcomingSubscriptions = computed(() => {
       name,
       initial: vendorInitial(name),
       photoUrl: String(row.vendor_photo_url || "").trim(),
-      amountText: `${fmtAmount(toNumber(row.amount_xrp), 2)} XRP`,
+      amountText: `${fmtAmount(toNumber(row.amount_xrp), 2)} RLUSD`,
       renewalText: formatDateLabel(String(row.next_payment_date || "")),
     };
   });
@@ -171,7 +193,7 @@ watch(
       </article>
       <article class="card">
         <h4>Locked in Escrow</h4>
-        <p>{{ fmtAmount(lockedInEscrow, 6) }} XRP</p>
+        <p>{{ fmtAmount(lockedInEscrow, 2) }} RLUSD</p>
       </article>
       <article class="card">
         <h4>Monthly Spending Limit</h4>
@@ -238,7 +260,7 @@ watch(
           <li v-for="item in recentActivity" :key="item.key" class="row-item">
             <div class="row-top">
               <span class="pill">{{ item.label }}</span>
-              <strong>{{ item.amountText }}</strong>
+              <strong class="amount-pill" :class="item.amountTone">{{ item.amountText }}</strong>
             </div>
             <small>{{ item.dateText }}</small>
           </li>
@@ -373,6 +395,26 @@ watch(
   color: var(--text-muted);
   font-size: 0.78rem;
   font-weight: 700;
+}
+.amount-pill {
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border-color);
+  font-size: 0.8rem;
+}
+.amount-pill.amount-positive {
+  background: color-mix(in srgb, #22c55e 12%, var(--surface-panel));
+  border-color: color-mix(in srgb, #22c55e 30%, var(--border-color));
+  color: #166534;
+}
+.amount-pill.amount-negative {
+  background: color-mix(in srgb, #ef4444 10%, var(--surface-panel));
+  border-color: color-mix(in srgb, #ef4444 28%, var(--border-color));
+  color: #991b1b;
+}
+.amount-pill.amount-neutral {
+  background: var(--surface-soft);
+  color: var(--text-primary);
 }
 .panel-footer {
   display: flex;

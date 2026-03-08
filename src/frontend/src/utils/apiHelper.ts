@@ -33,6 +33,8 @@ export const apiHelper = {
 	api.post<ApiEnvelope<any>>("/wallets/connect", payload),
 	bootstrapRlusdWallet: (payload: { user_wallet_address: string; mint_amount: number }) =>
 	api.post<ApiEnvelope<any>>("/wallets/bootstrap-rlusd", payload),
+	prepareRlusdWallet: (payload: { user_wallet_address: string; mint_amount: number }) =>
+	api.post<ApiEnvelope<any>>("/wallets/prepare-rlusd", payload),
 	createWallet: () => api.post<ApiEnvelope<any>>("/wallets/create"),
 	listWallets: (page = 1, pageSize = 10) =>
 		api.get<ApiEnvelope<any>>(`/wallets?page=${page}&page_size=${pageSize}`),
@@ -103,6 +105,7 @@ export const apiHelper = {
 			username: string;
 			amount_xrp: number;
 			interval_days: number;
+			interval_seconds?: number;
 		},
 	) =>
 	api.post<ApiEnvelope<any>>("/subscriptions/requests", payload, {

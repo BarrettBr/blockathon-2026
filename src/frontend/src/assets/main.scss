@@ -54,21 +54,27 @@ html {
   background: var(--app-bg);
   height: 100%;
   scroll-behavior: smooth;
+  overscroll-behavior-y: none;
 }
 
 body {
   margin: 0;
   padding: 0;
+  height: 100%;
   min-height: 100vh;
   color: var(--text-primary);
   background: var(--app-bg);
+  background-attachment: fixed;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
 }
 
 #app {
+  height: 100%;
   min-height: 100vh;
+  background: var(--app-bg);
 }
 
 input,

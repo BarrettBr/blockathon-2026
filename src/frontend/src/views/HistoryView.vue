@@ -91,6 +91,24 @@ function formatDateLabel(value: string): string {
   });
 }
 
+function signedAmount(eventType: string, amount: unknown): { text: string; tone: string } {
+  const value = toNumber(amount);
+  const event = String(eventType || "").toLowerCase();
+  const isIncoming = event === "rlusd_minted" || event === "rlusd_bootstrap";
+  const isOutgoing = event.startsWith("payment_") || event.startsWith("subscription_");
+  const sign = isIncoming ? "+" : isOutgoing ? "-" : "";
+  const tone = isIncoming ? "amount-positive" : isOutgoing ? "amount-negative" : "amount-neutral";
+  return {
+    text: `${sign}${value.toFixed(6)}`,
+    tone,
+  };
+}
+
+function toNumber(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 async function copyText(value: string) {
   if (!value) return;
   await navigator.clipboard.writeText(value);
@@ -146,7 +164,11 @@ const filteredEntries = computed(() => {
           <td>{{ formatDateLabel(row.created_at) }}</td>
           <td><span class="event-pill">{{ formatEventLabel(row.event_type) }}</span></td>
           <td>{{ row.vendor_name || row.note || "-" }}</td>
-          <td>{{ row.amount ?? "-" }} {{ row.currency }}</td>
+          <td class="amount-col">
+            <span class="amount-pill" :class="signedAmount(row.event_type, row.amount).tone">
+              {{ signedAmount(row.event_type, row.amount).text }} {{ row.currency || "XRP" }}
+            </span>
+          </td>
           <td><span class="status-pill" :class="statusTone(row.status)">{{ row.status }}</span></td>
           <td>
             <div v-if="row.tx_hash" class="tx-box">
@@ -335,6 +357,30 @@ td {
 .status-pill.is-bad {
   background: color-mix(in srgb, #ef4444 10%, var(--surface-panel));
   border-color: color-mix(in srgb, #ef4444 22%, var(--border-color));
+  color: var(--text-primary);
+}
+.amount-pill {
+  display: inline-block;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  padding: 0.16rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.amount-col { white-space: nowrap; }
+.amount-pill.amount-positive {
+  background: color-mix(in srgb, #22c55e 12%, var(--surface-panel));
+  border-color: color-mix(in srgb, #22c55e 30%, var(--border-color));
+  color: #166534;
+}
+.amount-pill.amount-negative {
+  background: color-mix(in srgb, #ef4444 10%, var(--surface-panel));
+  border-color: color-mix(in srgb, #ef4444 28%, var(--border-color));
+  color: #991b1b;
+}
+.amount-pill.amount-neutral {
+  background: var(--surface-soft);
   color: var(--text-primary);
 }
 .tx-box {

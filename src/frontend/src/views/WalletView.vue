@@ -10,9 +10,10 @@ const nicknameInput = ref("");
 const destination = ref("");
 const xrpAmount = ref(0.1);
 const rlusdAmount = ref(1);
-const bootstrapAmount = ref(100);
+const bootstrapAmount = ref(5);
 const message = ref("");
 const loading = ref(false);
+const addingRlusd = ref(false);
 
 function toNumber(value: unknown): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
@@ -85,18 +86,28 @@ async function removeWallet(linkId: number) {
 async function bootstrapRlusd() {
   if (!wallet.selectedWallet) return;
   loading.value = true;
+  addingRlusd.value = true;
   message.value = "";
   try {
-    const res = await apiHelper.bootstrapRlusdWallet({
+    const res = await apiHelper.prepareRlusdWallet({
       user_wallet_address: wallet.selectedWallet.address,
       mint_amount: bootstrapAmount.value,
     });
     await wallet.fetchSelectedBalance();
     await wallet.fetchAggregateBalance();
-    message.value = `RLUSD ready. Mint tx: ${res.data.data.mint_tx_hash}`;
+    const data = res.data.data || {};
+    const target = data.address || wallet.selectedWallet.address;
+    if (data.minted && data.mint_tx_hash) {
+      message.value = `Added +${data.mint_amount} RLUSD to ${target}. Tx: ${data.mint_tx_hash}`;
+    } else if (data.trustline_created) {
+      message.value = `Wallet ${target} is now ready for RLUSD (trustline created).`;
+    } else {
+      message.value = `Wallet ${target} is already ready for RLUSD.`;
+    }
   } catch (error: any) {
     message.value = error?.response?.data?.detail || "RLUSD bootstrap failed";
   } finally {
+    addingRlusd.value = false;
     loading.value = false;
   }
 }
@@ -233,9 +244,12 @@ watch(
 
     <article class="panel">
       <h3>Get Demo RLUSD</h3>
-      <label>Amount to Add</label>
+      <label>Top-up Amount (+RLUSD)</label>
       <input v-model.number="bootstrapAmount" type="number" min="0.000001" step="0.000001" />
-      <button class="btn btn-primary" @click="bootstrapRlusd" :disabled="loading || !wallet.selectedWallet">Add RLUSD</button>
+      <p class="hint">Adds to your current RLUSD balance, it does not replace it.</p>
+      <button class="btn btn-primary" @click="bootstrapRlusd" :disabled="loading || !wallet.selectedWallet">
+        {{ addingRlusd ? "Adding..." : "Add +RLUSD" }}
+      </button>
     </article>
 
     <article class="panel">

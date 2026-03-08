@@ -41,6 +41,21 @@ function vendorInitial(row: any): string {
   return label.charAt(0).toUpperCase();
 }
 
+function shortAddress(value: string): string {
+  if (!value) return "-";
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function intervalLabel(row: any): string {
+  const seconds = Number(row?.interval_seconds || 0);
+  if (Number.isFinite(seconds) && seconds >= 20 && seconds < 86400) {
+    if (seconds % 3600 === 0) return `Every ${seconds / 3600} hour${seconds / 3600 === 1 ? "" : "s"}`;
+    if (seconds % 60 === 0) return `Every ${seconds / 60} minute${seconds / 60 === 1 ? "" : "s"}`;
+    return `Every ${seconds} second${seconds === 1 ? "" : "s"}`;
+  }
+  return `Every ${row.interval_days} day${row.interval_days !== 1 ? "s" : ""}`;
+}
+
 function statusTone(value: string): string {
   const v = String(value || "").toLowerCase();
   if (["active", "approved", "validated", "success", "locked"].includes(v)) return "is-good";
@@ -113,14 +128,16 @@ async function approveRequest(subscriptionId: number) {
     setError(null, "Connect a wallet before approving.");
     return;
   }
+  const pendingRow = subscription.pending.find((row: any) => Number(row.id) === Number(subscriptionId));
+  const vendorName = pendingRow ? vendorLabel(pendingRow) : `#${subscriptionId}`;
   try {
     approvingId.value = subscriptionId;
-    message.value = `Approving subscription #${subscriptionId}...`;
+    message.value = `Approving ${vendorName} subscription...`;
     errorMessage.value = "";
     await subscription.approve(subscriptionId);
     await refreshPending();
     await refreshSubscriptions();
-    message.value = `Subscription #${subscriptionId} approved.`;
+    message.value = `${vendorName} subscription approved.`;
     errorMessage.value = "";
   } catch (err: any) {
     setError(err, "Failed to approve subscription.");
@@ -194,6 +211,7 @@ function explorerTxUrl(txHash: string): string {
 							<th>ID</th>
 							<th>Vendor</th>
 							<th>Reference ID</th>
+              <th>Vendor Wallet</th>
 							<th>Amount</th>
 							<th>Billing Cycle</th>
 							<th>Status</th>
@@ -211,8 +229,21 @@ function explorerTxUrl(txHash: string): string {
                 </div>
               </td>
 							<td>{{ s.vendor_tx_id }}</td>
-							<td>{{ s.amount_xrp }} XRP</td>
-							<td>Every {{ s.interval_days }} day<span v-if="s.interval_days !== 1">s</span></td>
+              <td>
+                <div class="tx-box wallet-box">
+                  <input :value="shortAddress(s.merchant_wallet_address)" readonly />
+                  <button
+                    class="compact ghost icon-btn"
+                    title="Copy wallet address"
+                    aria-label="Copy wallet address"
+                    @click="copyText(s.merchant_wallet_address)"
+                  >
+                    <i class="pi pi-copy copy-icon"></i>
+                  </button>
+                </div>
+              </td>
+							<td>{{ s.amount_xrp }} RLUSD</td>
+							<td>{{ intervalLabel(s) }}</td>
 							<td><span class="status-pill" :class="statusTone(s.request_status)">{{ formatStatusLabel(s.request_status) }}</span></td>
 							<td class="actions">
 								<button class="compact" :disabled="approvingId === s.id" @click="approveRequest(s.id)">
@@ -224,7 +255,7 @@ function explorerTxUrl(txHash: string): string {
 							</td>
 						</tr>
 						<tr v-if="subscription.pending.length === 0">
-							<td colspan="7">No plans waiting for approval.</td>
+							<td colspan="8">No plans waiting for approval.</td>
 						</tr>
 					</tbody>
 				</table>
@@ -264,7 +295,7 @@ function explorerTxUrl(txHash: string): string {
 							<td>{{ s.vendor_tx_id }}</td>
 							<td><span class="status-pill" :class="statusTone(s.status)">{{ formatStatusLabel(s.status) }}</span></td>
 							<td><span class="status-pill" :class="statusTone(s.request_status)">{{ formatStatusLabel(s.request_status) }}</span></td>
-							<td>{{ s.amount_xrp }} XRP</td>
+							<td>{{ s.amount_xrp }} RLUSD</td>
 							<td><span class="status-pill" :class="statusTone(s.escrow_status)">{{ formatStatusLabel(s.escrow_status) }}</span></td>
 							<td>
 								<div v-if="s.last_tx_hash" class="tx-box">

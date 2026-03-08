@@ -6,6 +6,7 @@ import hashlib
 import json as _json
 import json
 import hmac
+import math
 import secrets
 import uuid
 from pathlib import Path
@@ -24,14 +25,13 @@ from xrpl.models.requests import AccountInfo, AccountLines, ServerInfo, Tx
 from xrpl.models.transactions import (
     AccountSet,
     AccountSetAsfFlag,
-    EscrowCreate,
     Memo,
     Payment,
     TrustSet,
     TrustSetFlag,
 )
 from xrpl.transaction import submit_and_wait
-from xrpl.utils import datetime_to_ripple_time, xrp_to_drops
+from xrpl.utils import xrp_to_drops
 from xrpl.wallet import Wallet as XRPLWallet
 from xrpl.wallet import generate_faucet_wallet
 
@@ -53,6 +53,7 @@ from db import (
 from schemas import (
     BootstrapRlusdRequest,
     PaymentSendRequest,
+    PrepareRlusdRequest,
     RlusdPaymentSendRequest,
     SnapshotAskRequest,
     SnapshotCreateRequest,
@@ -140,8 +141,10 @@ def _build_subscription_contract_payload(
     vendor_tx_id: str,
     amount_xrp: float,
     interval_days: int,
+    interval_seconds: Optional[int] = None,
     version: str = "v1",
 ) -> dict[str, Any]:
+    effective_seconds = interval_seconds or (interval_days * 24 * 60 * 60)
     return {
         "version": version,
         "vendor_id": vendor.id,
@@ -152,6 +155,7 @@ def _build_subscription_contract_payload(
         "vendor_wallet": vendor.wallet_address,
         "amount_xrp": _amount_to_string(amount_xrp),
         "interval_days": interval_days,
+        "interval_seconds": effective_seconds,
         "network": settings.XRPL_NETWORK,
     }
 
@@ -733,6 +737,17 @@ def _get_account_lines(address: str) -> list[dict[str, Any]]:
     return result.get("lines", [])
 
 
+def _find_trustline(address: str, currency: str, issuer: str) -> Optional[dict[str, Any]]:
+    try:
+        lines = _get_account_lines(address)
+    except Exception:
+        return None
+    for line in lines:
+        if line.get("account") == issuer and _matches_currency(str(line.get("currency", "")), currency):
+            return line
+    return None
+
+
 # Read all issued-currency balances from trust lines for UI/dashboard use.
 def _get_issued_balances(address: str) -> list[dict[str, Any]]:
     try:
@@ -807,20 +822,74 @@ def _get_rlusd_balance(address: str) -> float:
 
 # Create RLUSD trust line for wallet if missing.
 def _ensure_rlusd_trustline(user_wallet: XRPLWallet) -> bool:
-    if user_wallet.classic_address == settings.RLUSD_ISSUER:
+    issuer = settings.RLUSD_ISSUER.strip()
+    if not issuer:
+        raise HTTPException(status_code=400, detail="RLUSD_ISSUER is not configured.")
+
+    if user_wallet.classic_address == issuer:
         return False  # Issuer doesn't need a trustline to itself
+    if _find_trustline(user_wallet.classic_address, settings.RLUSD_CURRENCY, issuer):
+        return False
     client = _get_xrpl_client()
     tx = TrustSet(
         account=user_wallet.classic_address,
         limit_amount=IssuedCurrencyAmount(
             currency=_currency_to_hex(settings.RLUSD_CURRENCY),
-            issuer=settings.RLUSD_ISSUER,
+            issuer=issuer,
             value="1000000",
         ),
         flags=TrustSetFlag.TF_CLEAR_NO_RIPPLE,
     )
-    submit_and_wait(tx, client, user_wallet)
+    try:
+        response = submit_and_wait(tx, client, user_wallet)
+        status = (
+            response.result.get("meta", {}).get("TransactionResult")
+            or response.result.get("engine_result")
+            or ""
+        )
+        if status and not str(status).startswith("tes"):
+            if status == "temREDUNDANT":
+                return False
+            raise HTTPException(status_code=400, detail=f"Trustline setup failed: {status}")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if "temREDUNDANT" in str(exc):
+            return False
+        raise HTTPException(status_code=400, detail=f"Trustline setup failed: {exc}") from exc
     return True
+
+
+# Mint configured RLUSD from issuer wallet to destination wallet.
+def _ensure_issuer_default_ripple(issuer_wallet: XRPLWallet, client: JsonRpcClient) -> None:
+    if not settings.RLUSD_ISSUER:
+        raise HTTPException(status_code=400, detail="RLUSD_ISSUER is not configured.")
+    try:
+        acct_info = client.request(
+            AccountInfo(account=issuer_wallet.classic_address, ledger_index="validated")
+        ).result
+        flags = acct_info.get("account_data", {}).get("Flags", 0)
+        if flags & 0x00800000:
+            return
+        set_flag_tx = AccountSet(
+            account=issuer_wallet.classic_address,
+            set_flag=AccountSetAsfFlag.ASF_DEFAULT_RIPPLE,
+        )
+        response = submit_and_wait(set_flag_tx, client, issuer_wallet)
+        result = response.result
+        status = result.get("meta", {}).get("TransactionResult") or result.get("engine_result") or "unknown"
+        if not str(status).startswith("tes"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Could not enable DefaultRipple on issuer wallet: {status}",
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not verify or enable DefaultRipple on issuer wallet: {exc}",
+        ) from exc
 
 
 # Mint configured RLUSD from issuer wallet to destination wallet.
@@ -838,30 +907,19 @@ def _mint_rlusd(destination_address: str, mint_amount: float) -> dict[str, Any]:
     )
     client = _get_xrpl_client()
 
-    # Ensure DefaultRipple is enabled on issuer — required for peer-to-peer IOU transfers
-    try:
-        acct_info = client.request(AccountInfo(
-            account=issuer_wallet.classic_address,
-            ledger_index="validated"
-        )).result
-        flags = acct_info.get("account_data", {}).get("Flags", 0)
-        if not (flags & 0x00800000):  # lsfDefaultRipple not set
-            set_flag_tx = AccountSet(
-                account=issuer_wallet.classic_address,
-                set_flag=AccountSetAsfFlag.ASF_DEFAULT_RIPPLE,
-            )
-            submit_and_wait(set_flag_tx, client, issuer_wallet)
-    except Exception:
-        pass  # Non-fatal — payment attempt will fail with clear error if still needed
+    # Issuer must enable DefaultRipple for IOU circulation between non-issuer accounts.
+    _ensure_issuer_default_ripple(issuer_wallet, client)
 
+    issued_amount = IssuedCurrencyAmount(
+        currency=_currency_to_hex(settings.RLUSD_CURRENCY),
+        issuer=settings.RLUSD_ISSUER,
+        value=_amount_to_string(mint_amount),
+    )
     tx = Payment(
         account=issuer_wallet.classic_address,
         destination=destination_address,
-        amount=IssuedCurrencyAmount(
-            currency=_currency_to_hex(settings.RLUSD_CURRENCY),
-            issuer=settings.RLUSD_ISSUER,
-            value=_amount_to_string(mint_amount),
-        ),
+        amount=issued_amount,
+        send_max=issued_amount,
     )
     try:
         response = submit_and_wait(tx, client, issuer_wallet)
@@ -939,6 +997,44 @@ def _send_issued_payment(
 
     try:
         sender_wallet = _wallet_from_seed(sender_seed)
+        if sender_wallet.classic_address == destination_address:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Issued payment sender and destination are the same wallet. "
+                    "Use a different vendor payout wallet to avoid temREDUNDANT."
+                ),
+            )
+        sender_line = None
+        if sender_wallet.classic_address != issuer:
+            sender_line = _find_trustline(sender_wallet.classic_address, currency, issuer)
+            if not sender_line:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Sender wallet {sender_wallet.classic_address} is missing {currency} trustline "
+                        f"to issuer {issuer}."
+                    ),
+                )
+        if destination_address != issuer and not _find_trustline(destination_address, currency, issuer):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Destination wallet {destination_address} is missing {currency} trustline "
+                    f"to issuer {issuer}. The destination owner must connect that wallet and run "
+                    f"'{currency} top-up' once to create the trustline before receiving {currency}."
+                ),
+            )
+        if sender_line is not None:
+            sender_balance = float(sender_line.get("balance") or 0.0)
+            if sender_balance < float(amount):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Sender wallet has insufficient {currency} balance "
+                        f"({sender_balance} available, {amount} required)."
+                    ),
+                )
         issued_amount = IssuedCurrencyAmount(
             currency=_currency_to_hex(currency),
             issuer=issuer,
@@ -953,6 +1049,15 @@ def _send_issued_payment(
         response = submit_and_wait(tx, client, sender_wallet)
         result = response.result
     except Exception as exc:
+        message = str(exc)
+        if "tecPATH_DRY" in message:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Issued payment failed with tecPATH_DRY. Verify trustlines and balances: "
+                    f"currency={currency}, issuer={issuer}, destination={destination_address}."
+                ),
+            ) from exc
         raise HTTPException(status_code=400, detail=f"Issued payment failed: {exc}") from exc
 
     tx_hash = result.get("hash") or result.get("tx_json", {}).get("hash")
@@ -1001,89 +1106,77 @@ def _cycle_to_dict(row: SubscriptionCycle) -> dict[str, Any]:
     }
 
 
-# Create an escrow-backed billing cycle and persist both cycle + subscription state.
-def _create_subscription_cycle_with_escrow(
+def _subscription_interval_seconds(row: Subscription) -> int:
+    legacy = int(row.interval_days or 30) * 24 * 60 * 60
+    value = int(row.interval_seconds or legacy)
+    return max(value, 20)
+
+
+# Create a billing cycle and execute immediate RLUSD transfer for the cycle amount.
+def _create_subscription_cycle_with_payment(
     db: Session,
     subscription: Subscription,
     user_seed: str,
     cycle_index: int,
-    period_start: date,
-    period_end: date,
+    period_start: datetime,
+    period_end: datetime,
 ) -> SubscriptionCycle:
-    client = _get_xrpl_client()
     user_wallet = _wallet_from_seed(user_seed)
     if user_wallet.classic_address != subscription.user_wallet_address:
         raise HTTPException(status_code=400, detail="Provided seed does not match subscription user wallet")
 
-    now_utc = datetime.now(timezone.utc)
-    finish_after_dt = now_utc + timedelta(seconds=max(settings.SUBSCRIPTION_ESCROW_CLAIM_DELAY_SECONDS, 1))
-    cancel_after_dt = finish_after_dt + timedelta(days=max(settings.SUBSCRIPTION_ESCROW_REFUND_DAYS, 1))
-
-    tx = EscrowCreate(
-        account=subscription.user_wallet_address,
-        destination=subscription.merchant_wallet_address,
-        amount=_xrp_to_drops(subscription.amount_xrp),
-        finish_after=datetime_to_ripple_time(finish_after_dt),
-        cancel_after=datetime_to_ripple_time(cancel_after_dt),
-        memos=[Memo(memo_data=_hex_text(f"CYCLE_ESCROW:{subscription.id}:{cycle_index}:{subscription.contract_hash}"))],
+    payment_result = _send_issued_payment(
+        sender_seed=user_seed,
+        destination_address=subscription.merchant_wallet_address,
+        amount=subscription.amount_xrp,
+        currency=settings.RLUSD_CURRENCY,
+        issuer=settings.RLUSD_ISSUER,
+        tx_type="subscription_cycle_payment_rlusd",
     )
-
-    try:
-        response = submit_and_wait(tx, client, user_wallet)
-        result = response.result
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Cycle escrow lock failed: {exc}") from exc
-
-    tx_hash = result.get("hash") or result.get("tx_json", {}).get("hash")
-    tx_status = result.get("meta", {}).get("TransactionResult") or "unknown"
-    offer_sequence = result.get("tx_json", {}).get("Sequence")
+    tx_hash = payment_result["tx_hash"]
+    tx_status = payment_result["status"]
 
     cycle_row = SubscriptionCycle(
         subscription_id=subscription.id,
         cycle_index=cycle_index,
         period_start=period_start,
         period_end=period_end,
-        status="locked",
+        status="released",
         escrow_amount_xrp=subscription.amount_xrp,
-        escrow_offer_sequence=offer_sequence,
         escrow_create_tx_hash=tx_hash,
-        escrow_cancel_after=datetime_to_ripple_time(cancel_after_dt),
     )
     db.add(cycle_row)
 
     subscription.escrow_amount_xrp = subscription.amount_xrp
-    subscription.escrow_offer_sequence = offer_sequence
+    subscription.escrow_offer_sequence = None
     subscription.escrow_create_tx_hash = tx_hash
-    subscription.escrow_status = "locked"
-    subscription.escrow_cancel_after = datetime_to_ripple_time(cancel_after_dt)
+    subscription.escrow_status = "released"
+    subscription.escrow_cancel_after = None
     subscription.last_tx_hash = tx_hash
     subscription.updated_at = datetime.now(timezone.utc)
 
     db.add(
         Transaction(
             tx_hash=tx_hash,
-            tx_type="subscription_cycle_escrow_lock",
+            tx_type="subscription_cycle_payment_rlusd",
             from_address=subscription.user_wallet_address,
             to_address=subscription.merchant_wallet_address,
-            amount_xrp=subscription.amount_xrp,
+            amount_xrp=0.0,
             status=tx_status,
         )
     )
     _record_history(
         db,
         user_wallet_address=subscription.user_wallet_address,
-        event_type="subscription_cycle_escrow_lock",
+        event_type="subscription_release",
         tx_hash=tx_hash,
         counterparty_address=subscription.merchant_wallet_address,
         amount=subscription.amount_xrp,
-        currency="XRP",
+        currency=settings.RLUSD_CURRENCY,
         status=tx_status,
-        note=(
-            f"Subscription {subscription.id} cycle {cycle_index} escrow created "
-            f"(claim after ~{max(settings.SUBSCRIPTION_ESCROW_CLAIM_DELAY_SECONDS, 1)}s, "
-            f"refund window {max(settings.SUBSCRIPTION_ESCROW_REFUND_DAYS, 1)}d)"
-        ),
+        note=f"Subscription {subscription.id} cycle {cycle_index} paid in {settings.RLUSD_CURRENCY}",
     )
+    _apply_spending(db, subscription.user_wallet_address, subscription.amount_xrp, settings.RLUSD_CURRENCY)
     db.commit()
     db.refresh(cycle_row)
     db.refresh(subscription)
@@ -1101,6 +1194,7 @@ def _subscription_to_dict(row: Subscription) -> dict[str, Any]:
         "merchant_wallet_address": row.merchant_wallet_address,
         "amount_xrp": row.amount_xrp,
         "interval_days": row.interval_days,
+        "interval_seconds": _subscription_interval_seconds(row),
         "status": row.status,
         "request_status": row.request_status,
         "contract_hash": row.contract_hash,
@@ -1311,35 +1405,72 @@ def bootstrap_rlusd_wallet(
     payload: BootstrapRlusdRequest,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    return prepare_rlusd_wallet(
+        PrepareRlusdRequest(
+            user_wallet_address=payload.user_wallet_address,
+            mint_amount=payload.mint_amount,
+        ),
+        db,
+    )
+
+
+# Prepare RLUSD readiness: ensure trustline and optionally mint demo balance.
+def prepare_rlusd_wallet(
+    payload: PrepareRlusdRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
     if not _is_valid_classic_address(payload.user_wallet_address):
         raise HTTPException(status_code=400, detail="Invalid user_wallet_address")
     user_seed = _get_seed_for_address(db, payload.user_wallet_address)
     user_wallet = _wallet_from_seed(user_seed)
+    if user_wallet.classic_address != payload.user_wallet_address:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Stored seed/address mismatch for {payload.user_wallet_address}. "
+                "Reconnect this wallet to refresh local records."
+            ),
+        )
+    if settings.RLUSD_ISSUER and user_wallet.classic_address == settings.RLUSD_ISSUER.strip():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Selected wallet is the RLUSD issuer. Issuer wallets do not hold their own issued balance "
+                "as a trustline balance. Connect a separate user wallet, create its RLUSD trustline, then mint to it."
+            ),
+        )
 
     trustline_created = _ensure_rlusd_trustline(user_wallet)
-    mint_result = _mint_rlusd(user_wallet.classic_address, payload.mint_amount)
+    minted = payload.mint_amount > 0
+    mint_result: Optional[dict[str, Any]] = None
+    if minted:
+        mint_result = _mint_rlusd(user_wallet.classic_address, payload.mint_amount)
     balance = _get_rlusd_balance(user_wallet.classic_address)
 
-    _record_history(
-        db,
-        user_wallet_address=user_wallet.classic_address,
-        event_type="rlusd_bootstrap",
-        tx_hash=mint_result["tx_hash"],
-        counterparty_address=settings.RLUSD_ISSUER,
-        amount=payload.mint_amount,
-        currency=settings.RLUSD_CURRENCY,
-        status=mint_result["status"],
-        note="Trustline setup and mint bootstrap",
-    )
-    db.commit()
+    if mint_result:
+        _record_history(
+            db,
+            user_wallet_address=user_wallet.classic_address,
+            event_type="rlusd_bootstrap",
+            tx_hash=mint_result["tx_hash"],
+            counterparty_address=settings.RLUSD_ISSUER,
+            amount=payload.mint_amount,
+            currency=settings.RLUSD_CURRENCY,
+            status=mint_result["status"],
+            note="Trustline setup and mint bootstrap",
+        )
+        db.commit()
 
     return _success(
-        "RLUSD bootstrap completed",
+        "RLUSD wallet prepared",
         {
             "address": user_wallet.classic_address,
+            "requested_address": payload.user_wallet_address,
             "trustline_created": trustline_created,
-            "mint_tx_hash": mint_result["tx_hash"],
-            "mint_status": mint_result["status"],
+            "minted": minted,
+            "mint_amount": payload.mint_amount,
+            "mint_tx_hash": mint_result["tx_hash"] if mint_result else None,
+            "mint_status": mint_result["status"] if mint_result else None,
             "rlusd_balance": balance,
             "rlusd_currency": settings.RLUSD_CURRENCY,
             "rlusd_issuer": settings.RLUSD_ISSUER,
@@ -1844,18 +1975,30 @@ def create_subscription_request(
             status_code=400,
             detail="User has no wallet address configured. They must connect a wallet before subscribing."
         )
+    if user_profile.wallet_address == vendor.wallet_address:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "User wallet and vendor payout wallet cannot be the same for subscriptions. "
+                "Set a different vendor wallet."
+            ),
+        )
+
+    interval_seconds = payload.interval_seconds or (payload.interval_days * 24 * 60 * 60)
+    interval_days = max(1, int(math.ceil(interval_seconds / (24 * 60 * 60))))
 
     contract_payload = _build_subscription_contract_payload(
         vendor=vendor,
         user_profile=user_profile,
         vendor_tx_id=payload.vendor_tx_id,
         amount_xrp=payload.amount_xrp,
-        interval_days=payload.interval_days,
+        interval_days=interval_days,
+        interval_seconds=interval_seconds,
     )
     contract_signature = _sign_subscription_contract(contract_payload, vendor.shared_secret)
     contract_hash = _contract_hash(contract_payload)
 
-    today = date.today()
+    now_utc = datetime.now(timezone.utc)
     row = Subscription(
         vendor_id=vendor.id,
         user_profile_id=user_profile.id,
@@ -1863,19 +2006,20 @@ def create_subscription_request(
         user_wallet_address=user_profile.wallet_address,
         merchant_wallet_address=vendor.wallet_address,
         amount_xrp=payload.amount_xrp,
-        interval_days=payload.interval_days,
+        interval_days=interval_days,
+        interval_seconds=interval_seconds,
         status="pending",
         request_status="pending",
         contract_signature=contract_signature,
         contract_hash=contract_hash,
         contract_alg="HMAC-SHA256",
         contract_version="v1",
-        start_date=today,
-        next_payment_date=today,
+        start_date=now_utc,
+        next_payment_date=now_utc,
         auto_renew=True,
-        use_escrow=1,
+        use_escrow=0,
         escrow_amount_xrp=payload.amount_xrp,
-        escrow_status="not_started",
+        escrow_status="released",
     )
     db.add(row)
     db.commit()
@@ -1896,6 +2040,7 @@ def create_subscription_request(
             "merchant_wallet_address": row.merchant_wallet_address,
             "amount_xrp": row.amount_xrp,
             "interval_days": row.interval_days,
+            "interval_seconds": _subscription_interval_seconds(row),
         },
     )
 
@@ -1964,6 +2109,7 @@ def approve_subscription_request(
         vendor_tx_id=row.vendor_tx_id,
         amount_xrp=row.amount_xrp,
         interval_days=row.interval_days,
+        interval_seconds=_subscription_interval_seconds(row),
         version=row.contract_version or "v1",
     )
     _verify_subscription_contract(contract_payload, row.contract_signature, vendor.shared_secret)
@@ -1972,8 +2118,8 @@ def approve_subscription_request(
         raise HTTPException(status_code=400, detail="Contract hash mismatch")
 
     first_cycle_start = row.start_date
-    first_cycle_end = first_cycle_start + timedelta(days=row.interval_days)
-    cycle_row = _create_subscription_cycle_with_escrow(
+    first_cycle_end = first_cycle_start + timedelta(seconds=_subscription_interval_seconds(row))
+    cycle_row = _create_subscription_cycle_with_payment(
         db=db,
         subscription=row,
         user_seed=user_seed,
@@ -1999,6 +2145,7 @@ def approve_subscription_request(
             "contract_hash": row.contract_hash,
             "request_status": row.request_status,
             "status": row.status,
+            "payment_tx_hash": cycle_row.escrow_create_tx_hash,
             "escrow_create_tx_hash": cycle_row.escrow_create_tx_hash,
             "approved_at": row.approved_at.isoformat() if row.approved_at else None,
         },
@@ -2011,6 +2158,7 @@ def approve_subscription_request(
             "subscription_id": row.id,
             "vendor_tx_id": row.vendor_tx_id,
             "contract_hash": row.contract_hash,
+            "payment_tx_hash": row.escrow_create_tx_hash,
             "escrow_create_tx_hash": row.escrow_create_tx_hash,
             "cycle_id": cycle_row.id,
             "cycle_index": cycle_row.cycle_index,
@@ -2424,9 +2572,9 @@ def process_subscription_cycle(
     )
     next_cycle_index = (latest_cycle.cycle_index + 1) if latest_cycle else 1
     period_start = subscription.next_payment_date
-    period_end = period_start + timedelta(days=subscription.interval_days)
+    period_end = period_start + timedelta(seconds=_subscription_interval_seconds(subscription))
 
-    cycle_row = _create_subscription_cycle_with_escrow(
+    cycle_row = _create_subscription_cycle_with_payment(
         db=db,
         subscription=subscription,
         user_seed=user_seed,
@@ -2454,6 +2602,7 @@ def process_subscription_cycle(
                 "cycle_index": cycle_row.cycle_index,
                 "period_start": cycle_row.period_start.isoformat(),
                 "period_end": cycle_row.period_end.isoformat(),
+                "payment_tx_hash": cycle_row.escrow_create_tx_hash,
                 "escrow_create_tx_hash": cycle_row.escrow_create_tx_hash,
                 "auto_renew": bool(subscription.auto_renew),
             },
@@ -2464,6 +2613,8 @@ def process_subscription_cycle(
         {
             "subscription_id": subscription.id,
             "cycle": _cycle_to_dict(cycle_row),
+            "payment_tx_hash": cycle_row.escrow_create_tx_hash,
+            "escrow_create_tx_hash": cycle_row.escrow_create_tx_hash,
             "next_payment_date": subscription.next_payment_date.isoformat(),
             "auto_renew": bool(subscription.auto_renew),
             "status": subscription.status,
@@ -2575,11 +2726,16 @@ def get_dashboard(user_wallet_address: str, db: Session = Depends(get_db)) -> di
         .scalar()
     )
 
+    now_utc = datetime.now(timezone.utc)
+    reserved_window_end = now_utc + timedelta(days=30)
     locked_this_month = (
-        db.query(func.coalesce(func.sum(HistoryEvent.amount), 0.0))
-        .filter(HistoryEvent.user_wallet_address == user_wallet_address)
-        .filter(HistoryEvent.event_type == "subscription_escrow_lock")
-        .filter(HistoryEvent.created_at >= month_start)
+        db.query(func.coalesce(func.sum(Subscription.amount_xrp), 0.0))
+        .filter(Subscription.user_wallet_address == user_wallet_address)
+        .filter(Subscription.status == "active")
+        .filter(Subscription.request_status == "approved")
+        .filter(Subscription.auto_renew == True)  # noqa: E712
+        .filter(Subscription.next_payment_date >= now_utc)
+        .filter(Subscription.next_payment_date <= reserved_window_end)
         .scalar()
     )
 
@@ -2617,6 +2773,7 @@ def get_dashboard(user_wallet_address: str, db: Session = Depends(get_db)) -> di
             "balance_xrp": balance_payload["balance_xrp"],
             "balance_rlusd": balance_payload["rlusd_balance"],
             "locked_in_escrow_xrp": float(locked_in_escrow or 0.0),
+            "locked_in_escrow_rlusd": float(locked_in_escrow or 0.0),
             "monthly_guard": {
                 "currency": guard.currency,
                 "limit": guard.monthly_limit,
@@ -2673,6 +2830,7 @@ def get_dashboard_aggregate(current_user: UserProfile, db: Session) -> dict[str,
                 "balance_xrp": 0.0,
                 "balance_rlusd": 0.0,
                 "locked_in_escrow_xrp": 0.0,
+                "locked_in_escrow_rlusd": 0.0,
                 "monthly_guard": {"currency": "RLUSD", "limit": 0.0, "spent": 0.0, "remaining": 0.0},
                 "this_month": {"released": 0.0, "locked": 0.0},
                 "upcoming_release": [],
@@ -2727,6 +2885,7 @@ def get_dashboard_aggregate(current_user: UserProfile, db: Session) -> dict[str,
             "balance_xrp": round(total_balance_xrp, 6),
             "balance_rlusd": round(total_balance_rlusd, 6),
             "locked_in_escrow_xrp": round(total_locked, 6),
+            "locked_in_escrow_rlusd": round(total_locked, 6),
             "monthly_guard": {
                 "currency": "RLUSD",
                 "limit": round(total_guard_limit, 6),

@@ -22,7 +22,7 @@
 
 		<div class="hero">
 			<div class="hero-text">
-				<div class="hero-eyebrow">Powered by XRPL · EquiPay Subscriptions</div>
+				<div class="hero-eyebrow">Powered by XRPL · EquiPay RLUSD Subscriptions</div>
 				<h1>Music <em>Without</em> Limits</h1>
 				<p>Stream 90 million tracks, offline listening, and exclusive artist content — all billed transparently on-chain via EquiPay.</p>
 				<div class="hero-cta">
@@ -49,12 +49,12 @@
 		<section id="pricing">
 			<div class="section-tag">Transparent · On-Chain · No Surprises</div>
 			<div class="section-title">Choose Your Plan</div>
-			<div class="section-sub">Every subscription is a verifiable escrow on the XRP Ledger. Cancel any time, your funds are protected.</div>
+			<div class="section-sub">Every subscription is billed transparently in RLUSD on the XRP Ledger. Cancel any time.</div>
 
 			<div class="pricing-grid">
 				<div class="plan-card">
 					<div class="plan-name">Basic</div>
-					<div class="plan-price"><sup>◈</sup>2<sub> XRP</sub></div>
+					<div class="plan-price">2<sub> RLUSD</sub></div>
 					<div class="plan-interval">per 30 days</div>
 					<ul class="plan-features">
 						<li>Stream up to 128kbps</li>
@@ -68,7 +68,7 @@
 				<div class="plan-card featured">
 					<div class="plan-badge">Most Popular</div>
 					<div class="plan-name">Pro</div>
-					<div class="plan-price"><sup>◈</sup>5<sub> XRP</sub></div>
+					<div class="plan-price">5<sub> RLUSD</sub></div>
 					<div class="plan-interval">per 30 days</div>
 					<ul class="plan-features">
 						<li class="highlight">Lossless 320kbps streaming</li>
@@ -81,7 +81,7 @@
 
 				<div class="plan-card">
 					<div class="plan-name">Unlimited</div>
-					<div class="plan-price"><sup>◈</sup>12<sub> XRP</sub></div>
+					<div class="plan-price">12<sub> RLUSD</sub></div>
 					<div class="plan-interval">per 30 days</div>
 					<ul class="plan-features">
 						<li class="highlight">Everything in Pro</li>
@@ -141,9 +141,21 @@
 					<div class="modal-plan-summary">
 						<div>
 							<div class="modal-plan-name" id="modal-plan-name">Pro</div>
-							<div style="font-size:0.78rem;color:var(--muted);margin-top:0.2rem;">30-day escrow · cancellable</div>
+							<div id="modal-plan-interval-text" style="font-size:0.78rem;color:var(--muted);margin-top:0.2rem;">30-day cycle · cancellable</div>
 						</div>
-						<div class="modal-plan-price" id="modal-plan-price">5 XRP</div>
+						<div class="modal-plan-price" id="modal-plan-price">5 RLUSD</div>
+					</div>
+					<div class="field">
+						<label>Billing Cycle Speed (Demo)</label>
+						<select id="modal-cycle-speed">
+							<option value="20">20 seconds</option>
+							<option value="60">1 minute</option>
+							<option value="300">5 minutes</option>
+							<option value="3600">1 hour</option>
+							<option value="86400">1 day</option>
+							<option value="604800">7 days</option>
+							<option value="2592000" selected>30 days</option>
+						</select>
 					</div>
 					<div class="field">
 						<label>EquiPay Username</label>
@@ -165,7 +177,7 @@
 		</div>
 
 		<footer>
-			<p>NovaBeat is a <strong>demo vendor</strong> for EquiPay · XRPL subscription payments · All billing is on-chain</p>
+			<p>NovaBeat is a <strong>demo vendor</strong> for EquiPay · XRPL subscription payments · Billing in RLUSD</p>
 		</footer>
 
 		<script>
@@ -179,7 +191,7 @@
 			wf.appendChild(bar);
 		});
 
-		let currentPlan = { name: '', amount: 0, days: 30 };
+		let currentPlan = { name: '', amount: 0, intervalSeconds: 2592000 };
 		let vendorSecret = localStorage.getItem('nb_secret') || '';
 		let vendorCode   = localStorage.getItem('nb_vendor_code') || 'novabeat';
 
@@ -258,11 +270,23 @@
 			el.className = 'status-indicator ' + (ok ? 'ok' : 'err');
 		}
 
+		function formatIntervalLabel(seconds) {
+			const s = Number(seconds || 0);
+			if (s >= 2592000) return '30-day cycle';
+			if (s % 86400 === 0) return `${s / 86400}-day cycle`;
+			if (s % 3600 === 0) return `${s / 3600}-hour cycle`;
+			if (s % 60 === 0) return `${s / 60}-minute cycle`;
+			return `${s}-second cycle`;
+		}
+
 		function openSubscribeModal(planName, amount, days) {
 			if (!vendorSecret) { alert('Set up your vendor credentials first (scroll to Vendor Setup).'); return; }
-			currentPlan = { name: planName, amount, days };
+			const seconds = Math.max(20, Number(days || 30) * 86400);
+			currentPlan = { name: planName, amount, intervalSeconds: seconds };
 			document.getElementById('modal-plan-name').textContent  = planName;
-			document.getElementById('modal-plan-price').textContent = amount + ' XRP';
+			document.getElementById('modal-plan-price').textContent = amount + ' RLUSD';
+			document.getElementById('modal-plan-interval-text').textContent = formatIntervalLabel(seconds) + ' · cancellable';
+			document.getElementById('modal-cycle-speed').value = String(seconds);
 			document.getElementById('modal-username').value = '';
 			document.getElementById('modal-error').className = 'modal-error';
 			document.getElementById('subscribe-form').classList.remove('hidden');
@@ -278,6 +302,7 @@
 
 		async function submitSubscription() {
 			const username = document.getElementById('modal-username').value.trim();
+			const cycleSeconds = Math.min(2592000, Math.max(20, Number(document.getElementById('modal-cycle-speed').value || currentPlan.intervalSeconds || 2592000)));
 			const btn      = document.getElementById('btn-confirm');
 
 			if (!username) { showModalError('Please enter your EquiPay username.'); return; }
@@ -294,7 +319,8 @@
 						vendor_tx_id:  'NB-' + currentPlan.name.toUpperCase() + '-' + Date.now(),
 						username,
 						amount_xrp:    currentPlan.amount,
-						interval_days: currentPlan.days,
+						interval_days: Math.max(1, Math.ceil(cycleSeconds / 86400)),
+						interval_seconds: cycleSeconds,
 					}),
 				});
 				const data = await resp.json();

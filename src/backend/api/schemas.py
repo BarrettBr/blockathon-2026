@@ -46,13 +46,19 @@ class RlusdPaymentSendRequest(BaseModel):
 
 class BootstrapRlusdRequest(BaseModel):
     user_wallet_address: str
-    mint_amount: float
+    mint_amount: float = Field(..., ge=0.0)
+
+
+class PrepareRlusdRequest(BaseModel):
+    user_wallet_address: str
+    mint_amount: float = Field(default=0.0, ge=0.0)
 
 class SubscriptionRequestCreateRequest(BaseModel):
     vendor_tx_id: str = Field(..., min_length=2, max_length=128)
     username: str = Field(..., min_length=3, max_length=128)
     amount_xrp: float = Field(..., gt=0)
     interval_days: int = Field(30, ge=1)
+    interval_seconds: Optional[int] = Field(default=None, ge=20, le=30 * 24 * 60 * 60)
 
 
 class SubscriptionApproveRequest(BaseModel):

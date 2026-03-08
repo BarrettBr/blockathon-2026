@@ -71,6 +71,7 @@ export const useSubscriptionStore = defineStore("subscription", {
         username: string;
         amount_xrp: number;
         interval_days: number;
+        interval_seconds?: number;
       },
     ) {
       const res = await apiHelper.createSubscriptionRequest(sharedSecret, payload);

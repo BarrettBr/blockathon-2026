@@ -73,6 +73,7 @@ class Subscription(Base):
     # Hackathon-only shortcut: plaintext seeds are NOT production-safe.
     amount_xrp = Column(Float, nullable=False, default=0.0)
     interval_days = Column(Integer, nullable=False, default=30)
+    interval_seconds = Column(Integer, nullable=False, default=30 * 24 * 60 * 60)
     status = Column(String(32), nullable=False, default="pending")
     request_status = Column(String(32), nullable=False, default="pending", index=True)
     contract_signature = Column(String(256), nullable=False)
@@ -81,8 +82,8 @@ class Subscription(Base):
     contract_version = Column(String(16), nullable=False, default="v1")
     approved_at = Column(DateTime, nullable=True)
     approved_by_username = Column(String(128), nullable=True)
-    start_date = Column(Date, nullable=False)
-    next_payment_date = Column(Date, nullable=False)
+    start_date = Column(DateTime, nullable=False)
+    next_payment_date = Column(DateTime, nullable=False)
     last_tx_hash = Column(String(128), nullable=True)
     auto_renew = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=utc_now)
@@ -106,8 +107,8 @@ class SubscriptionCycle(Base):
     id = Column(Integer, primary_key=True, index=True)
     subscription_id = Column(Integer, ForeignKey("subscriptions.id"), nullable=False, index=True)
     cycle_index = Column(Integer, nullable=False)
-    period_start = Column(Date, nullable=False)
-    period_end = Column(Date, nullable=False)
+    period_start = Column(DateTime, nullable=False)
+    period_end = Column(DateTime, nullable=False)
     status = Column(String(32), nullable=False, default="locked")
     escrow_amount_xrp = Column(Float, nullable=True)
     escrow_offer_sequence = Column(Integer, nullable=True)
@@ -249,6 +250,7 @@ def _repair_legacy_schema_if_needed() -> None:
             "contract_alg",
             "contract_version",
             "auto_renew",
+            "interval_seconds",
         },
         "vendors": {"vendor_code", "display_name", "wallet_address", "shared_secret", "vendor_photo_url"},
         "user_profiles": {"username", "wallet_address"},
