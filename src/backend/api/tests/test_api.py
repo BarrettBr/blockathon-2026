@@ -491,7 +491,7 @@ def test_snapshot_create_list_get_ask(monkeypatch):
     monkeypatch.setattr(
         api_module,
         "_fetch_snapshot_from_pinata",
-        lambda _cid: {"artifact_type": "financial_snapshot", "summary": {"total_spend_xrp": 15.5}},
+        lambda _cid, _file_id=None: {"artifact_type": "financial_snapshot", "summary": {"total_spend_xrp": 15.5}},
     )
     monkeypatch.setattr(
         api_module,

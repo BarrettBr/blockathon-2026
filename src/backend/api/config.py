@@ -66,7 +66,7 @@ class Settings:
     SNAPSHOT_DEFAULT_DAYS: int = int(os.getenv("SNAPSHOT_DEFAULT_DAYS", "30"))
 
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     GEMINI_API_BASE_URL: str = os.getenv("GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
 
 

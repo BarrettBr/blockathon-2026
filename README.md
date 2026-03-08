@@ -69,7 +69,7 @@ Snapshot/AI:
 - `PINATA_TIMEOUT_SECONDS`
 - `SNAPSHOT_DEFAULT_DAYS`
 - `GEMINI_API_KEY`
-- `GEMINI_MODEL` (default `gemini-1.5-flash`)
+- `GEMINI_MODEL` (default `gemini-2.0-flash`)
 - `GEMINI_API_BASE_URL`
 
 Misc:

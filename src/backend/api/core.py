@@ -390,6 +390,8 @@ def _upload_snapshot_to_pinata(snapshot_json: dict[str, Any], title: str) -> dic
             headers={
                 "Content-Type": content_type,
                 "Authorization": f"Bearer {settings.PINATA_JWT.strip()}",
+                "Accept": "application/json",
+                "User-Agent": "EquiPay/1.0 (+https://equipay.local)",
             },
             method="POST",
         )
@@ -413,6 +415,8 @@ def _upload_snapshot_to_pinata(snapshot_json: dict[str, Any], title: str) -> dic
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {settings.PINATA_JWT.strip()}",
+                "Accept": "application/json",
+                "User-Agent": "EquiPay/1.0 (+https://equipay.local)",
             },
             method="POST",
         )
@@ -434,8 +438,29 @@ def _upload_snapshot_to_pinata(snapshot_json: dict[str, Any], title: str) -> dic
     return {"cid": cid, "file_id": file_id}
 
 
-# Fetch snapshot artifact JSON from Pinata by CID.
-def _fetch_snapshot_from_pinata(cid: str) -> dict[str, Any]:
+# Fetch snapshot artifact JSON from Pinata by CID or file_id.
+def _fetch_snapshot_from_pinata(cid: str, file_id: Optional[str] = None) -> dict[str, Any]:
+    if file_id:
+        file_url = f"https://uploads.pinata.cloud/v3/files/{urllib_parse.quote(file_id)}"
+        request_obj = urllib_request.Request(
+            file_url,
+            headers={
+                "Authorization": f"Bearer {settings.PINATA_JWT.strip()}",
+                "Accept": "application/json",
+                "User-Agent": "EquiPay/1.0 (+https://equipay.local)",
+            },
+            method="GET",
+        )
+        try:
+            with urllib_request.urlopen(request_obj, timeout=settings.PINATA_TIMEOUT_SECONDS) as response:
+                body = response.read().decode("utf-8")
+                parsed = _json.loads(body)
+                if isinstance(parsed, dict):
+                    return parsed
+        except Exception:
+            # Fall back to CID gateway resolution below.
+            pass
+
     gateway = settings.PINATA_GATEWAY_BASE_URL.rstrip("/")
     quoted_cid = urllib_parse.quote(cid)
     candidate_urls: list[str] = []
@@ -459,6 +484,8 @@ def _fetch_snapshot_from_pinata(cid: str) -> dict[str, Any]:
         headers["Authorization"] = f"Bearer {settings.PINATA_JWT.strip()}"
     if gateway_token:
         headers["x-pinata-gateway-token"] = gateway_token
+    headers["Accept"] = "application/json"
+    headers["User-Agent"] = "EquiPay/1.0 (+https://equipay.local)"
 
     errors: list[str] = []
     parsed: Any = None
@@ -491,10 +518,12 @@ def _fetch_snapshot_from_pinata(cid: str) -> dict[str, Any]:
 def _ask_gemini_with_snapshot(snapshot_json: dict[str, Any], question: str) -> str:
     if not settings.GEMINI_API_KEY.strip():
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured")
-    model = settings.GEMINI_MODEL.strip() or "gemini-1.5-flash"
+    configured_model = settings.GEMINI_MODEL.strip() or "gemini-2.0-flash"
+    candidate_models = []
+    for model_name in [configured_model, "gemini-2.0-flash", "gemini-2.5-flash"]:
+        if model_name and model_name not in candidate_models:
+            candidate_models.append(model_name)
     base_url = settings.GEMINI_API_BASE_URL.rstrip("/")
-    url = f"{base_url}/models/{model}:generateContent?key={urllib_parse.quote(settings.GEMINI_API_KEY.strip())}"
-
     prompt = (
         "You are a financial assistant working only from a fixed snapshot artifact. "
         "Do not assume data not present in the snapshot. "
@@ -504,30 +533,42 @@ def _ask_gemini_with_snapshot(snapshot_json: dict[str, Any], question: str) -> s
         f"{_json.dumps(snapshot_json)}"
     )
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    request_obj = urllib_request.Request(
-        url,
-        data=_json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib_request.urlopen(request_obj, timeout=30) as response:
-            parsed = _json.loads(response.read().decode("utf-8"))
-    except urllib_error.HTTPError as exc:
-        message = exc.read().decode("utf-8") if hasattr(exc, "read") else str(exc)
-        raise HTTPException(status_code=502, detail=f"Gemini request failed: {message}") from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Gemini request failed: {exc}") from exc
+    last_error: Optional[str] = None
+    for model in candidate_models:
+        url = f"{base_url}/models/{model}:generateContent?key={urllib_parse.quote(settings.GEMINI_API_KEY.strip())}"
+        request_obj = urllib_request.Request(
+            url,
+            data=_json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib_request.urlopen(request_obj, timeout=30) as response:
+                parsed = _json.loads(response.read().decode("utf-8"))
+        except urllib_error.HTTPError as exc:
+            message = exc.read().decode("utf-8") if hasattr(exc, "read") else str(exc)
+            last_error = message
+            if exc.code == 404:
+                continue
+            raise HTTPException(status_code=502, detail=f"Gemini request failed: {message}") from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Gemini request failed: {exc}") from exc
 
-    candidates = parsed.get("candidates") or []
-    if not candidates:
-        raise HTTPException(status_code=502, detail="Gemini returned no candidates")
-    content = candidates[0].get("content", {})
-    parts = content.get("parts") or []
-    answer = "".join(str(part.get("text", "")) for part in parts).strip()
-    if not answer:
-        raise HTTPException(status_code=502, detail="Gemini returned empty response")
-    return answer
+        candidates = parsed.get("candidates") or []
+        if not candidates:
+            last_error = "Gemini returned no candidates"
+            continue
+        content = candidates[0].get("content", {})
+        parts = content.get("parts") or []
+        answer = "".join(str(part.get("text", "")) for part in parts).strip()
+        if answer:
+            return answer
+        last_error = "Gemini returned empty response"
+
+    raise HTTPException(
+        status_code=502,
+        detail=f"Gemini request failed: {last_error or 'No supported Gemini model available for generateContent'}",
+    )
 
 def generate_wallet_review(
     wallet_addresses: list[str],
@@ -2478,7 +2519,7 @@ def get_financial_snapshot(snapshot_id: int, current_user: UserProfile, db: Sess
     )
     if not row:
         raise HTTPException(status_code=404, detail="Snapshot not found")
-    artifact = _fetch_snapshot_from_pinata(row.pinata_cid)
+    artifact = _fetch_snapshot_from_pinata(row.pinata_cid, row.pinata_file_id)
     return _success(
         "Snapshot details",
         {
@@ -2514,7 +2555,7 @@ def ask_financial_snapshot_question(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Snapshot not found")
-    artifact = _fetch_snapshot_from_pinata(row.pinata_cid)
+    artifact = _fetch_snapshot_from_pinata(row.pinata_cid, row.pinata_file_id)
     answer = _ask_gemini_with_snapshot(artifact, payload.question)
     return _success(
         "Snapshot question answered",
