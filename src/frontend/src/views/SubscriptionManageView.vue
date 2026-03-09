@@ -276,12 +276,14 @@ function subscriptionTxRows(row: any) {
 							<td>{{ intervalLabel(s) }}</td>
 							<td><span class="status-pill" :class="statusTone(s.request_status)">{{ formatStatusLabel(s.request_status) }}</span></td>
 							<td class="actions">
-								<button class="compact" :disabled="approvingId === s.id" @click="approveRequest(s.id)">
-                  {{ approvingId === s.id ? "Approving..." : "Approve" }}
-                </button>
-								<button class="compact danger" :disabled="cancellingId === s.id" @click="cancelSubscription(s.id)">
-                  {{ cancellingId === s.id ? "Cancelling..." : "Cancel" }}
-                </button>
+                <div class="actions-wrap">
+								  <button class="compact" :disabled="approvingId === s.id" @click="approveRequest(s.id)">
+                    {{ approvingId === s.id ? "Approving..." : "Approve" }}
+                  </button>
+								  <button class="compact danger" :disabled="cancellingId === s.id" @click="cancelSubscription(s.id)">
+                    {{ cancellingId === s.id ? "Cancelling..." : "Cancel" }}
+                  </button>
+                </div>
 							</td>
 						</tr>
 						<tr v-if="subscription.pending.length === 0">
@@ -357,9 +359,11 @@ function subscriptionTxRows(row: any) {
 								<span v-else>-</span>
 							</td>
 							<td class="actions">
-								<button class="compact danger" :disabled="cancellingId === s.id" @click="cancelSubscription(s.id)">
-                  {{ cancellingId === s.id ? "Cancelling..." : "Cancel" }}
-                </button>
+                <div class="actions-wrap">
+								  <button class="compact danger" :disabled="cancellingId === s.id" @click="cancelSubscription(s.id)">
+                    {{ cancellingId === s.id ? "Cancelling..." : "Cancel" }}
+                  </button>
+                </div>
 							</td>
 						</tr>
 						<tr v-if="subscription.list.length === 0">
@@ -482,7 +486,18 @@ th, td {
   cursor: pointer;
   padding: 0;
 }
-.actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.actions {
+  vertical-align: middle;
+}
+.actions-wrap {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  width: 100%;
+}
 .vendor-cell {
   display: inline-flex;
   align-items: center;
