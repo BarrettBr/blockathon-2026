@@ -2,6 +2,9 @@
 
 EquiPay is a hackathon-ready app that makes recurring payments feel simple and user-controlled on XRPL.
 
+## Awards
+We submitted this project as part of the 36 hour Midwest Blockathon and won the award for Open Innovation, winning $500 in prize money. [devpost](https://devpost.com/software/equipay-ucnpqm)     
+
 ## What This Is
 EquiPay combines:
 - A FastAPI backend for wallets, payments, subscriptions, snapshots, and dashboard data
